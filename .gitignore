@@ -1,0 +1,24 @@
+# Dependencies and generated output
+node_modules/
+dist/
+coverage/
+release/
+release-*/
+release-installer/
+electron/FanControlReader.exe
+electron/ForegroundMonitor.exe
+
+# Local-only notes, images, settings, and secrets
+HANDOFF.md
+public/assets/aistudio/
+.env
+.env.*
+!.env.example
+*.local
+*.log
+
+# Editor and OS files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

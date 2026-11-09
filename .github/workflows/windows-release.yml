@@ -1,0 +1,49 @@
+name: Windows installer release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Type-check
+        run: pnpm run lint
+
+      - name: Build Windows installer
+        run: pnpm run package:win
+
+      - name: Publish GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = (Get-Content 'package.json' -Raw | ConvertFrom-Json).version
+          if ($env:GITHUB_REF_NAME -ne "v$version") { throw "Tag $env:GITHUB_REF_NAME does not match package version $version." }
+          $installer = Get-Item 'release-installer/MonitorStats-Setup-*.exe'
+          if (-not $installer) { throw 'Installer artifact was not generated.' }
+          $hash = (Get-FileHash $installer.FullName -Algorithm SHA256).Hash
+          $notes = "Windows installer for $env:GITHUB_REF_NAME.`n`nSHA-256: $hash"
+          gh release create $env:GITHUB_REF_NAME $installer.FullName --title "MonitorStats $env:GITHUB_REF_NAME" --notes $notes

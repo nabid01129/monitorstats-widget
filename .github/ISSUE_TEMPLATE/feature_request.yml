@@ -1,0 +1,24 @@
+name: Feature request
+description: Suggest a focused improvement.
+title: "[Feature]: "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: What would you like to happen?
+    validations:
+      required: true
+  - type: textarea
+    id: tradeoffs
+    attributes:
+      label: Accuracy or resource-use considerations
+      description: Mention any expected sensor source, update rate, or performance impact.
+    validations:
+      required: false

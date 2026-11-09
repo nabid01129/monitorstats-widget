@@ -1,0 +1,142 @@
+export interface ClockData {
+  timestamp: number;
+}
+
+export interface CpuData {
+  model: string;
+  clockMHz: number | null;
+  tempC: number | null;
+  loadPercent: number | null;
+  powerW: number | null;
+  cores: number[];
+  coreTempsC: number[];
+}
+
+export interface RamData {
+  spec: string;
+  generation: string;
+  stickCount: number;
+  stickCapacitiesGB: number[];
+  speedMTs: number | null;
+  channelMode: string;
+  processCount: number | null;
+  topProcesses: { name: string; workingSetMB: number }[];
+  totalGB: number | null;
+  usedGB: number | null;
+  freeGB: number | null;
+  loadPercent: number | null;
+}
+
+export interface GpuData {
+  model: string;
+  coreMHz: number | null;
+  vramMHz: number | null;
+  coreLoadPercent: number | null;
+  vramLoadPercent: number | null;
+  tempC: number | null;
+  fanPercent: number | null;
+  fanRPM: number | null;
+  watt: number | null;
+  vramUsedGB: number | null;
+  vramTotalGB: number | null;
+}
+
+export interface DriveData {
+  id: string;
+  name: string;
+  type: string;
+  letter: string;
+  totalGB: number | null;
+  usedGB: number | null;
+  freeGB: number | null;
+  loadPercent: number | null;
+  readKBps: number | null;
+  writeKBps: number | null;
+  health: string | null;
+  tempC: number | null;
+  wearPercent: number | null;
+  powerOnHours: number | null;
+  hostWritesTB: number | null;
+}
+
+export interface NetworkData {
+  name: string;
+  adapter: string | null;
+  localIP: string | null;
+  publicIP: string | null;
+  publicIPv4: string | null;
+  publicIPv6: string | null;
+  provider: string | null;
+  gateway: string | null;
+  dns: string[];
+  dnsResolver: {
+    ip: string;
+    name: string;
+    hostname: string | null;
+    country: string | null;
+    location: string | null;
+    pingMs: number | null;
+  } | null;
+  rxOpticalPowerDbm: number | null;
+  opticalStatus: 'connecting' | 'live' | 'unavailable';
+  opticalError: string | null;
+  opticalUpdatedAt: number | null;
+  linkSpeed: string | null;
+  profile: string | null;
+  inKBps: number | null;
+  outKBps: number | null;
+}
+
+export interface FanData {
+  name: string;
+  value: number;
+  units: string;
+}
+
+export interface MonitorInfo {
+  id: string;
+  fpsIndex: number;
+  label: string;
+  primary: boolean;
+  width: number;
+  height: number;
+  orientation: 'Landscape' | 'Portrait' | 'Square';
+}
+
+export interface GameTelemetry {
+  fps: number | null;
+  appName: string | null;
+  frameTimeMs: number | null;
+  source?: string;
+  status: 'starting' | 'tracking' | 'no-game' | 'unavailable';
+  at?: number;
+}
+
+export interface HardwareStats {
+  clock: ClockData;
+  cpu: CpuData;
+  ram: RamData;
+  gpu: GpuData;
+  drives: DriveData[];
+  fans: FanData[];
+  network: NetworkData;
+  status: 'starting' | 'live' | 'unavailable';
+  source: string;
+}
+
+export interface DisplaySettings {
+  runAtStartup: boolean;
+  showFpsBox: boolean;
+  fpsMonitor: string;
+  showCoreDetails: boolean;
+  customNames: Record<string, string>;
+  networkSpeedUnit: 'Mbps' | 'MB/s';
+  pollingIntervalMs: number;
+  displayId: string;
+  fillDisplay: boolean;
+  displayPosition: 'left' | 'center' | 'right';
+  widthPercent: number;
+  heightPercent: number;
+  autoScale: boolean;
+  scalePercent: number;
+}
