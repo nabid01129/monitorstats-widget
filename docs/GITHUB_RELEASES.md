@@ -44,14 +44,14 @@ On GitHub, confirm the repository is public. In **Settings → General → Featu
 
 The repository includes `.github/workflows/windows-release.yml`. A version tag starts a clean Windows build, runs TypeScript checks, builds the NSIS installer, and attaches the installer to a GitHub Release.
 
-The current source version is `1.3.36`. To publish its first release:
+The current source version is `1.3.37`. To publish its first release:
 
 ```powershell
-git tag v1.3.36
-git push origin v1.3.36
+git tag v1.3.37
+git push origin v1.3.37
 ```
 
-Open the repository's **Actions** page to watch the build. When the workflow succeeds, open **Releases** and verify the `MonitorStats-Setup-1.3.36.exe` asset is attached. Visitors can download the installer from that release page without installing Node.js or the sensor source applications.
+Open the repository's **Actions** page to watch the build. When the workflow succeeds, open **Releases** and verify the `MonitorStats-Setup-1.3.37.exe` asset is attached. Visitors can download the installer from that release page without installing Node.js or the sensor source applications.
 
 For the next release, update the version in `package.json`, commit and push the change, then create and push a matching `v<version>` tag. The workflow uses the lockfile and builds the C# helpers on the Windows runner.
 
@@ -62,5 +62,5 @@ Users only need 64-bit Windows 10/11 to install the release. MSI Afterburner, RT
 The installer is not code-signed, so Windows may show an unknown-publisher/SmartScreen warning. Once published, add a SHA-256 checksum to the release notes by running:
 
 ```powershell
-Get-FileHash .\MonitorStats-Setup-1.3.36.exe -Algorithm SHA256
+Get-FileHash .\MonitorStats-Setup-1.3.37.exe -Algorithm SHA256
 ```
