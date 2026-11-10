@@ -8,14 +8,28 @@ interface Props {
   stats: HardwareStats | null;
   displays: MonitorInfo[];
   onSaveSettings: (settings: DisplaySettings) => void;
+  shell?: {
+    getOntConfig: () => Promise<{ endpoint: string; username: string; configured: boolean }>;
+    saveOntConfig: (config: { endpoint: string; username: string; password: string }) => Promise<{ configured: boolean }>;
+  };
 }
 
-export const SidebarSettingsWindow: React.FC<Props> = ({ isOpen, onClose, settings, stats, displays, onSaveSettings }) => {
+export const SidebarSettingsWindow: React.FC<Props> = ({ isOpen, onClose, settings, stats, displays, onSaveSettings, shell }) => {
   const [draft, setDraft] = useState(settings);
+  const [ontDraft, setOntDraft] = useState({ endpoint: '', username: '', password: '', configured: false });
+  const [ontMessage, setOntMessage] = useState('');
+  const [savingOnt, setSavingOnt] = useState(false);
 
   useEffect(() => {
-    if (isOpen) setDraft(settings);
-  }, [isOpen, settings]);
+    if (!isOpen) return;
+    setDraft(settings);
+    setOntMessage('');
+    let active = true;
+    shell?.getOntConfig().then((config) => {
+      if (active) setOntDraft((previous) => ({ ...previous, ...config, password: '' }));
+    }).catch(() => {});
+    return () => { active = false; };
+  }, [isOpen, settings, shell]);
 
   if (!isOpen) return null;
 
@@ -66,6 +80,36 @@ export const SidebarSettingsWindow: React.FC<Props> = ({ isOpen, onClose, settin
             <span><strong className="block">Start with Windows</strong><small className="text-slate-400">Launch when you sign in.</small></span>
             <input type="checkbox" className={toggleClass} checked={draft.runAtStartup} onChange={(event) => setDraft({ ...draft, runAtStartup: event.target.checked })} />
           </label>
+          <div className="rounded border border-slate-700 bg-slate-950 p-3">
+            <strong className="mb-2 block">ONU optical power</strong>
+            <p className="mb-3 text-xs text-slate-400">Credentials are encrypted for this Windows account. Optical power refreshes every 30 minutes.</p>
+            <div className="space-y-2">
+              <label className="block text-xs text-slate-400">Local ONU address
+                <input className="mt-1 w-full rounded border border-slate-700 bg-slate-900 px-2 py-1.5 text-sm text-white" value={ontDraft.endpoint} onChange={(event) => setOntDraft({ ...ontDraft, endpoint: event.target.value })} placeholder="http://your-ont-local-ip" />
+              </label>
+              <label className="block text-xs text-slate-400">Username
+                <input autoComplete="username" className="mt-1 w-full rounded border border-slate-700 bg-slate-900 px-2 py-1.5 text-sm text-white" value={ontDraft.username} onChange={(event) => setOntDraft({ ...ontDraft, username: event.target.value })} placeholder="ONT username" />
+              </label>
+              <label className="block text-xs text-slate-400">Password {ontDraft.configured && <span className="text-emerald-400">· saved</span>}
+                <input autoComplete="new-password" type="password" className="mt-1 w-full rounded border border-slate-700 bg-slate-900 px-2 py-1.5 text-sm text-white" value={ontDraft.password} onChange={(event) => setOntDraft({ ...ontDraft, password: event.target.value })} placeholder={ontDraft.configured ? 'Leave blank to keep saved password' : 'Enter ONU password'} />
+              </label>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs text-slate-400" role="status">{ontMessage || (ontDraft.configured ? 'Configured' : 'Not configured')}</span>
+                <button type="button" disabled={savingOnt || !shell} className="rounded border border-cyan-700 px-2 py-1 text-xs text-cyan-200 hover:bg-slate-800 disabled:opacity-50" onClick={async () => {
+                  if (!shell) return;
+                  setSavingOnt(true);
+                  setOntMessage('Saving…');
+                  try {
+                    await shell.saveOntConfig(ontDraft);
+                    setOntDraft((previous) => ({ ...previous, password: '', configured: true }));
+                    setOntMessage('Saved · checking ONU…');
+                  } catch (error) {
+                    setOntMessage(error instanceof Error ? error.message : 'Could not save ONU settings');
+                  } finally { setSavingOnt(false); }
+                }}>{savingOnt ? 'Saving…' : 'Save ONU'}</button>
+              </div>
+            </div>
+          </div>
           <div className="rounded border border-slate-700 bg-slate-950 p-3">
             <div className="mb-2 flex items-center justify-between gap-2">
               <strong>Custom device names</strong>

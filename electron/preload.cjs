@@ -7,6 +7,8 @@ contextBridge.exposeInMainWorld('monitorStatsShell', {
   refreshHardware: () => ipcRenderer.send('monitorstats:refresh-hardware'),
   setWidgetLayout: (layout) => ipcRenderer.send('monitorstats:set-widget-layout', layout),
   getDisplays: () => ipcRenderer.invoke('monitorstats:get-displays'),
+  getOntConfig: () => ipcRenderer.invoke('monitorstats:get-ont-config'),
+  saveOntConfig: (config) => ipcRenderer.invoke('monitorstats:save-ont-config', config),
   onDisplays: (callback) => {
     const handler = (_event, displays) => callback(displays);
     ipcRenderer.on('monitorstats:displays', handler);

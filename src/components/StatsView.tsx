@@ -18,9 +18,12 @@ const networkSpeed = (value: number | null, unit: DisplaySettings['networkSpeedU
 };
 const customName = (settings: DisplaySettings, key: string, detected: string) => settings.customNames[key]?.trim() || detected;
 
-const Panel: React.FC<{ title: string; children: React.ReactNode; className?: string }> = ({ title, children, className = '' }) => (
+const Panel: React.FC<{ title: string; children: React.ReactNode; className?: string; headerAction?: React.ReactNode }> = ({ title, children, className = '', headerAction }) => (
   <section className={`min-w-0 rounded-md border border-slate-800 bg-slate-950/85 p-3 ${className}`}>
-    <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-cyan-300">{title}</h2>
+    <div className="mb-2 flex items-center justify-between gap-2">
+      <h2 className="text-xs font-semibold uppercase tracking-wide text-cyan-300">{title}</h2>
+      {headerAction}
+    </div>
     {children}
   </section>
 );
@@ -31,10 +34,10 @@ const Bar: React.FC<{ value: number | null }> = ({ value }) => (
   </div>
 );
 
-const Reading: React.FC<{ label: string; value: string; detail?: string }> = ({ label, value, detail }) => (
-  <div className="min-w-0">
+const Reading: React.FC<{ label: React.ReactNode; value: string; detail?: string; className?: string; valueClassName?: string; truncateValue?: boolean }> = ({ label, value, detail, className = '', valueClassName = 'text-sm', truncateValue = true }) => (
+  <div className={`min-w-0 ${className}`}>
     <div className="text-[10px] uppercase text-slate-500">{label}</div>
-    <div className="truncate text-sm font-semibold tabular-nums text-slate-100">{value}</div>
+    <div className={`${truncateValue ? 'truncate' : 'whitespace-normal break-all'} ${valueClassName} font-semibold tabular-nums text-slate-100`}>{value}</div>
     {detail && <div className="truncate text-[10px] text-slate-500">{detail}</div>}
   </div>
 );
@@ -73,9 +76,6 @@ const SystemPanel = React.memo(({ stats }: { stats: HardwareStats | null }) => {
     <Panel title="System">
       <div className="flex items-end justify-between gap-3">
         <div className="text-2xl font-bold tabular-nums text-white">{timeText}</div>
-        <span className={`text-[10px] uppercase ${stats?.status === 'live' ? 'text-emerald-400' : 'text-amber-300'}`}>
-          {stats?.status === 'live' ? `Live · ${stats.source}` : stats?.status === 'unavailable' ? 'Sensors unavailable' : 'Detecting hardware'}
-        </span>
       </div>
       <div className="mt-1 flex items-center justify-between gap-2 text-xs text-slate-400">
         <span>{date.toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'short', year: 'numeric' })}</span>
@@ -112,7 +112,6 @@ const GameFrameRatePanel = React.memo(({ monitor }: { monitor: string }) => {
       </div>
       <div className="flex items-end justify-between gap-3">
         <div className="text-4xl font-bold tabular-nums text-white">{number(gameTelemetry.fps, 0)} <span className="text-sm font-medium text-cyan-300">FPS</span></div>
-        <span className="pb-1 text-[10px] uppercase text-slate-500">Frame graph · spikes show stutter</span>
       </div>
       <svg className="mt-2 h-12 w-full rounded border border-slate-800 bg-slate-900/60" viewBox="0 0 200 42" preserveAspectRatio="none" role="img" aria-label="Recent frame-time graph; taller peaks indicate longer frames">
         <line x1="0" y1="38" x2="200" y2="38" stroke="#334155" strokeWidth="1" />
@@ -136,7 +135,6 @@ const ProcessPanel = React.memo(({ ram }: { ram: HardwareStats['ram'] | undefine
       <span className="text-slate-400">Running processes</span>
       <span className="tabular-nums text-white">{ram?.processCount ?? '—'}</span>
     </div>
-    <div className="mb-1 text-[10px] uppercase tracking-wide text-slate-500">Top 5 RAM · working set</div>
     {ram?.topProcesses?.length ? <div className="space-y-1">
       {ram.topProcesses.map((process, index) => (
         <div key={`${process.name}-${index}`} className="flex min-w-0 items-center justify-between gap-2 text-xs">
@@ -156,6 +154,7 @@ const ProcessPanel = React.memo(({ ram }: { ram: HardwareStats['ram'] | undefine
 });
 
 const StatsViewComponent: React.FC<Props> = ({ stats, settings }) => {
+  const [showNetworkIPs, setShowNetworkIPs] = useState(true);
   const cpuFans = stats?.fans.filter((fan) => /CPU.*fan|fan.*CPU/i.test(fan.name)) ?? [];
   const ram = stats?.ram;
   const ramStickCapacities = ram?.stickCapacitiesGB ?? [];
@@ -264,15 +263,16 @@ const StatsViewComponent: React.FC<Props> = ({ stats, settings }) => {
           </div> : <p className="text-xs text-slate-500">No local volumes detected.</p>}
         </Panel>
 
-        <Panel title="Network">
+        <Panel title="Network" headerAction={<button type="button" onClick={() => setShowNetworkIPs((visible) => !visible)} aria-label={showNetworkIPs ? 'Hide IP addresses' : 'Show IP addresses'} className="rounded border border-slate-700 px-2 py-0.5 text-[10px] text-slate-300 hover:border-cyan-500 hover:text-cyan-200">{showNetworkIPs ? 'Hide IPs' : 'Show IPs'}</button>}>
           <div className="truncate text-xs font-semibold text-white" title={stats?.network.adapter || undefined}>{stats?.network.name || 'Detecting network adapters…'}</div>
           <div className="mb-2 truncate text-[10px] text-slate-500">{stats?.network.adapter || 'Network adapter'} · {stats?.network.profile || 'No active network'} · {stats?.network.linkSpeed || '—'}</div>
+          {(stats?.network.routerManufacturer || stats?.network.routerModel) && <div className="mb-2 truncate text-[10px] text-slate-400" title={[stats.network.routerManufacturer, stats.network.routerModel].filter(Boolean).join(' ')}>Router · {[stats.network.routerManufacturer, stats.network.routerModel].filter(Boolean).join(' ')}</div>}
           <div className="grid grid-cols-2 gap-x-3 gap-y-2">
             <Reading label="Received" value={networkSpeed(stats?.network.inKBps ?? null, settings.networkSpeedUnit)} />
             <Reading label="Sent" value={networkSpeed(stats?.network.outKBps ?? null, settings.networkSpeedUnit)} />
-            <Reading label="Local IP" value={stats?.network.localIP || '—'} />
-            <Reading label="Public IPv4" value={stats?.network.publicIPv4 || '—'} />
-            <Reading label="Public IPv6" value={stats?.network.publicIPv6 || '—'} />
+            <Reading label="Local IP" value={showNetworkIPs ? (stats?.network.localIP || '—') : 'Hidden'} />
+            <Reading label={<span className="inline-flex items-center gap-1">Public IPv4{stats?.network.ipv4Type && <span className={`rounded px-1 py-px text-[9px] font-semibold normal-case tracking-normal ${stats.network.ipv4Type === 'shared' ? 'bg-red-950 text-red-300' : 'bg-emerald-950 text-emerald-300'}`}>{stats.network.ipv4Type === 'shared' ? 'Shared IP' : 'Real IP'}</span>}</span>} value={showNetworkIPs ? (stats?.network.publicIPv4 || '—') : 'Hidden'} />
+            <Reading label="Public IPv6" value={showNetworkIPs ? (stats?.network.publicIPv6 || '—') : 'Hidden'} className="col-span-2" valueClassName="text-[10px] leading-tight" truncateValue={false} />
             <Reading label="ISP" value={stats?.network.provider || 'Detecting…'} />
             <Reading
               label="RX Optical Power"
@@ -280,10 +280,8 @@ const StatsViewComponent: React.FC<Props> = ({ stats, settings }) => {
               detail={stats?.network.opticalUpdatedAt ? `${stats.network.opticalStatus === 'live' ? 'Updated' : `Last value · ${stats.network.opticalError || 'ONT unavailable'}`} ${new Date(stats.network.opticalUpdatedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` : stats?.network.opticalStatus === 'unavailable' ? `ONT · ${stats.network.opticalError || 'unavailable'}` : 'Huawei ONT'}
             />
           </div>
-          <div className="mt-2 truncate text-[10px] text-slate-500">Gateway {stats?.network.gateway || '—'}</div>
-          <div className="truncate text-[10px] text-slate-500" title={stats?.network.dns.join(', ')}>Configured DNS {stats?.network.dns.join(', ') || '—'}</div>
           <div className="mt-1 flex items-center justify-between gap-2 text-[10px]">
-            <span className="truncate text-cyan-300" title={stats?.network.dnsResolver ? `${stats.network.dnsResolver.ip}${stats.network.dnsResolver.hostname ? ` · ${stats.network.dnsResolver.hostname}` : ''}` : undefined}>Active DNS {stats?.network.dnsResolver ? `${stats.network.dnsResolver.name}${stats.network.dnsResolver.country ? ` · ${stats.network.dnsResolver.country}` : ''}` : 'Detecting resolver…'}</span>
+            <span className="truncate text-cyan-300" title={showNetworkIPs && stats?.network.dnsResolver ? `${stats.network.dnsResolver.ip}${stats.network.dnsResolver.hostname ? ` · ${stats.network.dnsResolver.hostname}` : ''}` : undefined}>Active DNS {stats?.network.dnsResolver ? `${stats.network.dnsResolver.name}${stats.network.dnsResolver.country ? ` · ${stats.network.dnsResolver.country}` : ''}` : 'Detecting resolver…'}</span>
             <span className="shrink-0 text-slate-400">Ping {stats?.network.dnsResolver?.pingMs === null || stats?.network.dnsResolver?.pingMs === undefined ? '—' : `${stats.network.dnsResolver.pingMs} ms`}</span>
           </div>
           {stats?.network.dnsResolver?.location && <div className="truncate text-[10px] text-slate-500">Server {stats.network.dnsResolver.location}</div>}

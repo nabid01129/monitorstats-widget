@@ -1,11 +1,18 @@
-const { app, BrowserWindow, ipcMain, screen, Tray, Menu, nativeImage } = require('electron');
+const { app, BrowserWindow, ipcMain, screen, Tray, Menu, nativeImage, safeStorage } = require('electron');
 const { spawn } = require('node:child_process');
 const path = require('node:path');
 const os = require('node:os');
+const fs = require('node:fs/promises');
 const https = require('node:https');
 const http = require('node:http');
 const dns = require('node:dns').promises;
 const net = require('node:net');
+const dgram = require('node:dgram');
+
+// The widget has no crash-reporting service; don't keep Chromium's unused
+// breakpad handler process running alongside the sensor readers.
+app.commandLine.appendSwitch('disable-breakpad');
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
 
 let mainWindow;
 let foregroundPid = null;
@@ -34,6 +41,9 @@ let lastRtsSampleSignature = '';
 let latestHardwareStats = null;
 let publicNetworkDetails = { publicIP: null, publicIPv4: null, publicIPv6: null, provider: null };
 publicNetworkDetails.dnsResolver = null;
+let routerNetworkDetails = { routerManufacturer: null, routerModel: null, routerWanIPv4: null, ipv4Type: null };
+let routerLookupInFlight = false;
+let routerRefreshTimer;
 let publicLookupInFlight = false;
 let publicLookupTimer;
 let publicLookupPending = false;
@@ -61,13 +71,202 @@ let hardwareRefreshTimeout;
 let gamePublishTimer;
 let isQuitting = false;
 // ONU configuration is deliberately user-local; never commit device addresses or credentials.
-const ontOpticalEndpoint = process.env.MONITORSTATS_ONT_ENDPOINT?.trim().replace(/\/+$/, '') || '';
-const ontUsername = process.env.MONITORSTATS_ONT_USERNAME || '';
-const ontPassword = process.env.MONITORSTATS_ONT_PASSWORD || '';
+let ontOpticalEndpoint = process.env.MONITORSTATS_ONT_ENDPOINT?.trim().replace(/\/+$/, '') || '';
+let ontUsername = process.env.MONITORSTATS_ONT_USERNAME || '';
+let ontPassword = process.env.MONITORSTATS_ONT_PASSWORD || '';
 let ontOpticalData = { rxOpticalPowerDbm: null, opticalStatus: 'connecting', opticalError: null, opticalUpdatedAt: null };
 let ontOpticalRefreshTimer;
 let ontOpticalLookupInFlight = false;
 let ontOpticalRetryAttempt = 0;
+
+function getOntConfigPath() {
+  return path.join(app.getPath('userData'), 'ont-config.bin');
+}
+
+async function loadOntConfig() {
+  if (ontOpticalEndpoint && ontUsername && ontPassword) return;
+  try {
+    if (!safeStorage.isEncryptionAvailable()) return;
+    const encrypted = await fs.readFile(getOntConfigPath());
+    const saved = JSON.parse(safeStorage.decryptString(encrypted));
+    if (!ontOpticalEndpoint && typeof saved.endpoint === 'string') ontOpticalEndpoint = saved.endpoint;
+    if (!ontUsername && typeof saved.username === 'string') ontUsername = saved.username;
+    if (!ontPassword && typeof saved.password === 'string') ontPassword = saved.password;
+  } catch { /* First run or unreadable saved credentials; configure from Settings. */ }
+}
+
+async function saveOntConfig(config = {}) {
+  const endpoint = typeof config.endpoint === 'string' ? config.endpoint.trim().replace(/\/+$/, '') : '';
+  const username = typeof config.username === 'string' ? config.username.trim() : '';
+  const password = typeof config.password === 'string' ? config.password : '';
+  let endpointUrl;
+  try { endpointUrl = new URL(endpoint); } catch { throw new Error('Enter a valid ONT address.'); }
+  if (endpointUrl.protocol !== 'http:' || !isPrivateIPv4(endpointUrl.hostname)) throw new Error('Use the ONT’s local HTTP address on your private network.');
+  if (!username || username.length > 128) throw new Error('Enter the ONT username.');
+  if (password.length > 512) throw new Error('ONT password is too long.');
+  if (!password && !ontPassword) throw new Error('Enter the ONT password.');
+  if (!safeStorage.isEncryptionAvailable()) throw new Error('Windows secure credential storage is unavailable.');
+  const savedPassword = password || ontPassword;
+  const encrypted = safeStorage.encryptString(JSON.stringify({ endpoint, username, password: savedPassword }));
+  await fs.mkdir(app.getPath('userData'), { recursive: true });
+  await fs.writeFile(getOntConfigPath(), encrypted);
+  ontOpticalEndpoint = endpoint;
+  ontUsername = username;
+  ontPassword = savedPassword;
+  ontOpticalRetryAttempt = 0;
+  refreshOntOpticalPower();
+  return { configured: true };
+}
+
+function isPrivateIPv4(address) {
+  if (net.isIP(address) !== 4) return false;
+  const octets = address.split('.').map(Number);
+  return octets[0] === 10
+    || (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31)
+    || (octets[0] === 192 && octets[1] === 168)
+    || (octets[0] === 169 && octets[1] === 254)
+    || octets[0] === 127;
+}
+
+function isUpstreamNattedIPv4(address) {
+  if (!isPrivateIPv4(address)) return address?.startsWith('100.') && Number(address.split('.')[1]) >= 64 && Number(address.split('.')[1]) <= 127;
+  return true;
+}
+
+function localHttpRequest(url, { method = 'GET', headers = {}, body = '' } = {}) {
+  return new Promise((resolve, reject) => {
+    const target = new URL(url);
+    if (target.protocol !== 'http:' || !isPrivateIPv4(target.hostname)) return reject(new Error('Router endpoint is not a private IPv4 HTTP address'));
+    const request = http.request(target, { method, headers, timeout: 2500 }, (response) => {
+      const chunks = [];
+      let size = 0;
+      response.on('data', (chunk) => {
+        size += chunk.length;
+        if (size > 128 * 1024) { request.destroy(new Error('Router response too large')); return; }
+        chunks.push(chunk);
+      });
+      response.on('end', () => resolve({ statusCode: response.statusCode || 0, body: Buffer.concat(chunks).toString('utf8') }));
+    });
+    request.on('timeout', () => request.destroy(new Error('Router request timed out')));
+    request.on('error', reject);
+    if (body) request.write(body);
+    request.end();
+  });
+}
+
+function discoverUpnpRouter() {
+  return new Promise((resolve) => {
+    const socket = dgram.createSocket({ type: 'udp4', reuseAddr: true });
+    let finished = false;
+    const locations = new Set();
+    const complete = () => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(timer);
+      try { socket.close(); } catch {}
+      resolve([...locations]);
+    };
+    const timer = setTimeout(complete, 1800);
+    socket.on('error', complete);
+    socket.on('message', (message) => {
+      const response = message.toString('utf8');
+      const match = response.match(/^location\s*:\s*(https?:\/\/[^\r\n]+)/im);
+      if (!match) return;
+      try {
+        const location = new URL(match[1].trim());
+        if (location.protocol === 'http:' && isPrivateIPv4(location.hostname)) locations.add(location.href);
+      } catch {}
+    });
+    socket.bind(() => {
+      const query = Buffer.from([
+        'M-SEARCH * HTTP/1.1',
+        'HOST: 239.255.255.250:1900',
+        'MAN: "ssdp:discover"',
+        'MX: 1',
+        'ST: urn:schemas-upnp-org:device:InternetGatewayDevice:1',
+        '', '',
+      ].join('\r\n'));
+      socket.send(query, 1900, '239.255.255.250', (error) => { if (error) complete(); });
+    });
+  });
+}
+
+function xmlTag(xml, tag) {
+  const escaped = tag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = xml.match(new RegExp(`<${escaped}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/${escaped}\\s*>`, 'i'));
+  return match ? match[1].replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').trim() : null;
+}
+
+async function inspectUpnpDescription(location) {
+  const response = await localHttpRequest(location);
+  if (response.statusCode < 200 || response.statusCode >= 300) return null;
+  const xml = response.body;
+  const manufacturer = xmlTag(xml, 'manufacturer');
+  const modelName = xmlTag(xml, 'modelName');
+  const modelNumber = xmlTag(xml, 'modelNumber');
+  const model = modelName && modelNumber?.toLowerCase().startsWith(modelName.toLowerCase())
+    ? modelNumber
+    : [modelName, modelNumber].filter(Boolean).join(' ');
+  const serviceBlocks = [...xml.matchAll(/<service\b[^>]*>([\s\S]*?)<\/service\s*>/gi)].map((match) => match[1]);
+  const service = serviceBlocks.find((block) => /WANIPConnection:|WANPPPConnection:/i.test(xmlTag(block, 'serviceType') || ''));
+  const controlPath = service && xmlTag(service, 'controlURL');
+  let controlUrl = controlPath ? new URL(controlPath, location) : null;
+  const descriptionUrl = new URL(location);
+  if (controlUrl && (controlUrl.protocol !== 'http:' || controlUrl.hostname !== descriptionUrl.hostname || controlUrl.port !== descriptionUrl.port)) controlUrl = null;
+  return { manufacturer, model, controlUrl, serviceType: service ? xmlTag(service, 'serviceType') : null };
+}
+
+async function queryRouterWanIPv4(controlUrl, serviceType) {
+  if (!controlUrl || !serviceType) return null;
+  const body = `<?xml version="1.0"?><s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/"><s:Body><u:GetExternalIPAddress xmlns:u="${serviceType}"/></s:Body></s:Envelope>`;
+  const response = await localHttpRequest(controlUrl.href, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/xml; charset=utf-8', SOAPAction: `"${serviceType}#GetExternalIPAddress"`, 'Content-Length': Buffer.byteLength(body) },
+    body,
+  });
+  const address = xmlTag(response.body, 'NewExternalIPAddress');
+  return net.isIP(address || '') === 4 ? address : null;
+}
+
+async function refreshRouterNetwork() {
+  if (isQuitting || routerLookupInFlight) return;
+  routerLookupInFlight = true;
+  try {
+    const locations = await discoverUpnpRouter();
+    let discovered = null;
+    for (const location of locations) {
+      try {
+        const candidate = await inspectUpnpDescription(location);
+        if (candidate && (candidate.manufacturer || candidate.model || candidate.controlUrl)) { discovered = candidate; break; }
+      } catch {}
+    }
+    let wanIPv4 = null;
+    if (discovered?.controlUrl) {
+      try { wanIPv4 = await queryRouterWanIPv4(discovered.controlUrl, discovered.serviceType); } catch {}
+    }
+    const publicIPv4 = publicNetworkDetails.publicIPv4;
+    // A private/CGNAT WAN address proves upstream NAT. A direct address match
+    // proves a public WAN IP. A public mismatch can be caused by a VPN, so leave
+    // it unclassified rather than incorrectly calling it shared.
+    const ipv4Type = wanIPv4 && publicIPv4
+      ? (wanIPv4 === publicIPv4 ? 'real' : isUpstreamNattedIPv4(wanIPv4) ? 'shared' : null)
+      : null;
+    const next = {
+      routerManufacturer: discovered?.manufacturer || null,
+      routerModel: discovered?.model || null,
+      routerWanIPv4: wanIPv4,
+      ipv4Type,
+    };
+    if (JSON.stringify(next) !== JSON.stringify(routerNetworkDetails)) {
+      routerNetworkDetails = next;
+      if (latestHardwarePayload) sendHardwareStats(latestHardwarePayload);
+    }
+  } finally {
+    routerLookupInFlight = false;
+    if (routerRefreshTimer) clearTimeout(routerRefreshTimer);
+    if (!isQuitting) routerRefreshTimer = setTimeout(refreshRouterNetwork, 30 * 60 * 1000);
+  }
+}
 
 function scheduleOntOpticalRefresh(delayMs) {
   if (ontOpticalRefreshTimer) clearTimeout(ontOpticalRefreshTimer);
@@ -269,7 +468,7 @@ function sendHardwareStats(payload) {
       ...latestFanControlSensors,
       ...(payload.fans || []).filter((fan) => !fanNames.has(fan.name.toLowerCase())),
     ],
-    network: { ...payload.network, ...publicNetworkDetails, ...ontOpticalData },
+    network: { ...payload.network, ...publicNetworkDetails, ...routerNetworkDetails, ...ontOpticalData },
   };
   if (mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()) mainWindow.webContents.send('monitorstats:hardware', latestHardwareStats);
 }
@@ -538,6 +737,9 @@ async function refreshPublicNetwork() {
     const changed = JSON.stringify(next) !== JSON.stringify(publicNetworkDetails);
     publicNetworkDetails = next;
     if (changed && latestHardwarePayload) sendHardwareStats(latestHardwarePayload);
+    // Re-read the router WAN address after the current public IP lookup. This
+    // keeps VPN transitions from being classified against a stale address.
+    setTimeout(refreshRouterNetwork, 300);
     // Retry partial/failed lookups periodically without repeatedly contacting the provider.
     const complete = Boolean(next.publicIPv4 && next.publicIPv6 && next.provider);
     if (publicLookupTimer) clearTimeout(publicLookupTimer);
@@ -577,6 +779,7 @@ function invalidatePublicNetwork() {
   publicNetworkGeneration += 1;
   for (const request of publicLookupRequests) request.destroy();
   publicNetworkDetails = { publicIP: null, publicIPv4: null, publicIPv6: null, provider: null, dnsResolver: null };
+  routerNetworkDetails = { ...routerNetworkDetails, routerWanIPv4: null, ipv4Type: null };
   if (latestHardwarePayload) sendHardwareStats(latestHardwarePayload);
 }
 
@@ -820,6 +1023,15 @@ ipcMain.on('monitorstats:refresh-hardware', () => {
 });
 
 ipcMain.handle('monitorstats:get-displays', () => listDisplays());
+ipcMain.handle('monitorstats:get-ont-config', async () => {
+  await loadOntConfig();
+  return {
+    endpoint: ontOpticalEndpoint || '',
+    username: ontUsername || '',
+    configured: Boolean(ontOpticalEndpoint && ontUsername && ontPassword),
+  };
+});
+ipcMain.handle('monitorstats:save-ont-config', (_event, config) => saveOntConfig(config));
 
 ipcMain.on('monitorstats:set-widget-layout', (_event, layout) => {
   if (!layout || typeof layout !== 'object') return;
@@ -837,7 +1049,19 @@ ipcMain.on('monitorstats:set-widget-layout', (_event, layout) => {
   applyWidgetLayout();
 });
 
-app.whenReady().then(() => {
+if (!hasSingleInstanceLock) app.quit();
+else app.on('second-instance', () => {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    createWindow();
+    return;
+  }
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.showInactive();
+});
+
+app.whenReady().then(async () => {
+  if (!hasSingleInstanceLock) return;
+  await loadOntConfig();
   createWindow();
   createTray();
   startForegroundMonitor();
@@ -862,6 +1086,7 @@ app.on('before-quit', () => {
   if (publicLookupTimer) clearTimeout(publicLookupTimer);
   if (dnsResolverRefreshTimer) clearTimeout(dnsResolverRefreshTimer);
   if (ontOpticalRefreshTimer) clearTimeout(ontOpticalRefreshTimer);
+  if (routerRefreshTimer) clearTimeout(routerRefreshTimer);
   if (networkChangeDebounceTimer) clearTimeout(networkChangeDebounceTimer);
   if (networkInterfaceMonitor) clearInterval(networkInterfaceMonitor);
   if (gamePublishTimer) clearInterval(gamePublishTimer);

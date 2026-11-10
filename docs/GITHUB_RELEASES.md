@@ -44,23 +44,24 @@ On GitHub, confirm the repository is public. In **Settings → General → Featu
 
 The repository includes `.github/workflows/windows-release.yml`. A version tag starts a clean Windows build, runs TypeScript checks, builds the NSIS installer, and attaches the installer to a GitHub Release.
 
-The current source version is `1.3.37`. To publish its first release:
+The last published version is `1.3.37`. For the next release, update `package.json`, add a matching `CHANGELOG.md` section, commit the changes, and push the matching version tag:
 
 ```powershell
-git tag v1.3.37
-git push origin v1.3.37
+git tag v1.3.42
+git push origin main
+git push origin v1.3.42
 ```
 
 Open the repository's **Actions** page to watch the build. When the workflow succeeds, open **Releases** and verify the `MonitorStats-Setup-1.3.37.exe` asset is attached. Visitors can download the installer from that release page without installing Node.js or the sensor source applications.
 
-For the next release, update the version in `package.json`, commit and push the change, then create and push a matching `v<version>` tag. The workflow uses the lockfile and builds the C# helpers on the Windows runner.
+The workflow uses the lockfile, extracts the matching release notes from `CHANGELOG.md`, builds the C# helpers on the Windows runner, and includes a SHA-256 checksum in the release notes.
 
 ## 5. What users need
 
-Users only need 64-bit Windows 10/11 to install the release. MSI Afterburner, RTSS, Fan Control, and `nvidia-smi` are optional sensor sources; each adds only the readings it provides. Basic Windows telemetry works without them. ONU optical power is also optional and requires per-user environment variables; it is not preconfigured for contributors or users.
+Users only need 64-bit Windows 10/11 to install the release. MSI Afterburner, RTSS, Fan Control, and `nvidia-smi` are optional sensor sources; each adds only the readings it provides. Basic Windows telemetry works without them. ONU optical power is optional and is configured in Settings with the user's local address and credentials; passwords are encrypted for the current Windows account. Advanced users can also configure it with per-user environment variables.
 
 The installer is not code-signed, so Windows may show an unknown-publisher/SmartScreen warning. Once published, add a SHA-256 checksum to the release notes by running:
 
 ```powershell
-Get-FileHash .\MonitorStats-Setup-1.3.37.exe -Algorithm SHA256
+Get-FileHash .\MonitorStats-Setup-1.3.42.exe -Algorithm SHA256
 ```

@@ -72,19 +72,21 @@ Hardware polling is configurable in Settings. Process memory is sampled every fi
 
 ## Optional ONU optical power
 
-ONU credentials are not stored in this repository. To enable optical-power reading, set Windows **user** environment variables for your ONU and router setup. Replace the sample username and password with your own values. Run these commands in PowerShell; do not commit real values or paste them into an issue:
+ONU credentials are not stored in this repository. To enable optical-power reading, open MonitorStats Settings and enter the ONU's private local address, username, and password. The password is encrypted with Windows secure storage for the current Windows account. The connection stays on your local network and is read-only; optical power is refreshed every 30 minutes. Use this only on a trusted home network.
+
+Environment variables are also supported for advanced setups. Replace the address and credential placeholders with your own values:
 
 ```powershell
-[Environment]::SetEnvironmentVariable('MONITORSTATS_ONT_ENDPOINT', 'http://192.168.100.1', 'User')
+[Environment]::SetEnvironmentVariable('MONITORSTATS_ONT_ENDPOINT', 'http://your-ont-local-address', 'User')
 [Environment]::SetEnvironmentVariable('MONITORSTATS_ONT_USERNAME', 'your-username', 'User')
 [Environment]::SetEnvironmentVariable('MONITORSTATS_ONT_PASSWORD', 'your-password', 'User')
 ```
 
-Restart MonitorStats (or sign out and back in if it was started by Windows at login) so it inherits the new variables. The ONU connection uses local HTTP; only use this on a trusted home network. If you do not configure the variables, ONU data stays unavailable and the rest of the widget works normally.
+Environment variables take priority over Settings. If neither is configured, ONU data stays unavailable and the rest of the widget works normally.
 
 ## Privacy
 
-Hardware samples are read locally. Public-IP/ISP and DNS resolver lookups disclose network information to the services listed above. ONU credentials are read from the current user's environment and sent only to the configured local ONU. Do not attach screenshots or logs containing IP addresses, device identifiers, or credentials to public issues.
+Hardware samples are read locally. Public-IP/ISP and DNS resolver lookups disclose network information to the services listed above. ONU credentials are encrypted for the current Windows account and sent only to the configured local ONU. Do not attach screenshots or logs containing IP addresses, device identifiers, or credentials to public issues.
 
 ## Contribute
 

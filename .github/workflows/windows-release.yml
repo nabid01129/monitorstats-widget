@@ -45,5 +45,8 @@ jobs:
           $installer = Get-Item 'release-installer/MonitorStats-Setup-*.exe'
           if (-not $installer) { throw 'Installer artifact was not generated.' }
           $hash = (Get-FileHash $installer.FullName -Algorithm SHA256).Hash
-          $notes = "Windows installer for $env:GITHUB_REF_NAME.`n`nSHA-256: $hash"
+          $changelog = Get-Content 'CHANGELOG.md' -Raw
+          $section = [regex]::Match($changelog, "(?ms)^##\s+$([regex]::Escape($version))\b.*?(?=^##\s+|\z)")
+          if (-not $section.Success) { throw "No CHANGELOG.md section found for version $version." }
+          $notes = "$($section.Value.Trim())`n`nSHA-256: $hash"
           gh release create $env:GITHUB_REF_NAME $installer.FullName --title "MonitorStats $env:GITHUB_REF_NAME" --notes $notes

@@ -67,6 +67,10 @@ export interface NetworkData {
   publicIPv4: string | null;
   publicIPv6: string | null;
   provider: string | null;
+  routerManufacturer: string | null;
+  routerModel: string | null;
+  routerWanIPv4: string | null;
+  ipv4Type: 'shared' | 'real' | null;
   gateway: string | null;
   dns: string[];
   dnsResolver: {

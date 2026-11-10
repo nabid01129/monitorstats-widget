@@ -12,6 +12,8 @@ interface ShellBridge {
   refreshHardware: () => void;
   setWidgetLayout: (layout: Pick<DisplaySettings, 'displayId' | 'fillDisplay' | 'displayPosition' | 'widthPercent' | 'heightPercent' | 'autoScale' | 'scalePercent'>) => void;
   getDisplays: () => Promise<MonitorInfo[]>;
+  getOntConfig: () => Promise<{ endpoint: string; username: string; configured: boolean }>;
+  saveOntConfig: (config: { endpoint: string; username: string; password: string }) => Promise<{ configured: boolean }>;
   onDisplays: (callback: (displays: MonitorInfo[]) => void) => () => void;
   onHardwareStats: (callback: (data: HardwareStats) => void) => () => void;
   onHardwareError: (callback: () => void) => () => void;
@@ -148,6 +150,7 @@ export default function App() {
         stats={stats}
         displays={displays}
         onSaveSettings={saveSettings}
+        shell={window.monitorStatsShell}
       />
     </div>
   );
