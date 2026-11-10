@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.3.54 — 2026-11-10
+
+- Prefer the active default gateway for router identification and WAN-IP checks.
+- Ignore UPnP responses from other LAN devices, including virtual gateways published by security software, so router details and Real IP/Shared IP status use the correct device.
+
 ## 1.3.53 — 2026-11-10
 
 - Restored reliable router make/model and Real IP/Shared IP detection by querying UPnP gateway versions 1 and 2, with the active gateway's local UPnP description as a fallback.

@@ -151,7 +151,7 @@ function localHttpRequest(url, { method = 'GET', headers = {}, body = '' } = {})
   });
 }
 
-function discoverUpnpRouter() {
+function discoverUpnpRouter(gateway) {
   return new Promise((resolve) => {
     const socket = dgram.createSocket({ type: 'udp4', reuseAddr: true });
     let finished = false;
@@ -178,7 +178,10 @@ function discoverUpnpRouter() {
       if (!match) return;
       try {
         const location = new URL(match[1].trim());
-        if (location.protocol === 'http:' && isPrivateIPv4(location.hostname)) locations.add(location.href);
+        // Only accept the UPnP responder at the active default gateway.
+        // Security suites can publish their own virtual IGD endpoint and must
+        // not be mistaken for the user's physical router.
+        if (location.protocol === 'http:' && isPrivateIPv4(location.hostname) && location.hostname === gateway) locations.add(location.href);
       } catch {}
     });
     socket.bind(() => {
@@ -240,23 +243,22 @@ async function refreshRouterNetwork() {
   routerLookupInFlight = true;
   let discoverySucceeded = false;
   try {
-    const locations = await discoverUpnpRouter();
+    const gateway = latestHardwarePayload?.network?.gateway;
     let discovered = null;
-    for (const location of locations) {
+    // Query the active gateway first. This avoids choosing a virtual UPnP
+    // service from security software or another device on the LAN.
+    if (isPrivateIPv4(gateway || '')) {
       try {
-        const candidate = await inspectUpnpDescription(location);
-        if (candidate && (candidate.manufacturer || candidate.model || candidate.controlUrl)) { discovered = candidate; break; }
+        const candidate = await inspectUpnpDescription(`http://${gateway}:5000/rootDesc.xml`);
+        if (candidate && (candidate.manufacturer || candidate.model || candidate.controlUrl)) discovered = candidate;
       } catch {}
     }
-    // Some gateways answer UPnP description requests but intermittently miss
-    // SSDP searches during startup. MiniUPnP's standard description endpoint
-    // is a safe read-only fallback on the active private IPv4 gateway.
-    if (!discovered) {
-      const gateway = latestHardwarePayload?.network?.gateway;
-      if (isPrivateIPv4(gateway || '')) {
+    if (!discovered && isPrivateIPv4(gateway || '')) {
+      const locations = await discoverUpnpRouter(gateway);
+      for (const location of locations) {
         try {
-          const candidate = await inspectUpnpDescription(`http://${gateway}:5000/rootDesc.xml`);
-          if (candidate && (candidate.manufacturer || candidate.model || candidate.controlUrl)) discovered = candidate;
+          const candidate = await inspectUpnpDescription(location);
+          if (candidate && (candidate.manufacturer || candidate.model || candidate.controlUrl)) { discovered = candidate; break; }
         } catch {}
       }
     }
