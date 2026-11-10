@@ -232,6 +232,9 @@ function Update-NetworkInventory {
 # running. Sensor polling stays in Afterburner; this process only reads values.
 $script:mahMap = $null
 $script:mahView = $null
+$script:mahAscii = [Text.Encoding]::ASCII
+$script:mahNameBytes = New-Object byte[] 260
+$script:mahUnitBytes = New-Object byte[] 260
 $lastMahmAttempt = [DateTime]::MinValue
 $afterburnerCpuLoad = $null
 $afterburnerCores = @()
@@ -255,15 +258,12 @@ function Get-MahmData {
     $entrySize = [int]$script:mahView.ReadUInt32(16)
     if ($headerSize -lt 28 -or $entrySize -lt 1324 -or $entryCount -lt 1) { Close-MahmMap; return @() }
     $results = [Collections.Generic.List[object]]::new()
-    $ascii = [Text.Encoding]::ASCII
-    $nameBytes = New-Object byte[] 260
-    $unitBytes = New-Object byte[] 260
     for ($i = 0; $i -lt $entryCount; $i++) {
       $offset = [long]$headerSize + ([long]$i * $entrySize)
-      [void]$script:mahView.ReadArray($offset, $nameBytes, 0, 260)
-      [void]$script:mahView.ReadArray($offset + 260, $unitBytes, 0, 260)
-      $name = $ascii.GetString($nameBytes).Trim([char]0, ' ')
-      $units = $ascii.GetString($unitBytes).Trim([char]0, ' ')
+      [void]$script:mahView.ReadArray($offset, $script:mahNameBytes, 0, 260)
+      [void]$script:mahView.ReadArray($offset + 260, $script:mahUnitBytes, 0, 260)
+      $name = $script:mahAscii.GetString($script:mahNameBytes).Trim([char]0, ' ')
+      $units = $script:mahAscii.GetString($script:mahUnitBytes).Trim([char]0, ' ')
       $value = [double]$script:mahView.ReadSingle($offset + 1300)
       if (-not $name -or [double]::IsNaN($value) -or [double]::IsInfinity($value) -or [Math]::Abs($value) -ge 3.0e+38) { continue }
       $gpuIndex = [uint32]$script:mahView.ReadUInt32($offset + 1316)

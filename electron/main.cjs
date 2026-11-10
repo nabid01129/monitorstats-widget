@@ -44,6 +44,7 @@ publicNetworkDetails.dnsResolver = null;
 let routerNetworkDetails = { routerManufacturer: null, routerModel: null, routerWanIPv4: null, ipv4Type: null };
 let routerLookupInFlight = false;
 let routerRefreshTimer;
+let routerDiscoveryFailures = 0;
 let publicLookupInFlight = false;
 let publicLookupTimer;
 let publicLookupPending = false;
@@ -96,6 +97,7 @@ async function loadOntConfig() {
 }
 
 async function saveOntConfig(config = {}) {
+  if (!config || typeof config !== 'object' || Array.isArray(config)) throw new Error('Invalid ONT settings.');
   const endpoint = typeof config.endpoint === 'string' ? config.endpoint.trim().replace(/\/+$/, '') : '';
   const username = typeof config.username === 'string' ? config.username.trim() : '';
   const password = typeof config.password === 'string' ? config.password : '';
@@ -128,11 +130,6 @@ function isPrivateIPv4(address) {
     || octets[0] === 127;
 }
 
-function isUpstreamNattedIPv4(address) {
-  if (!isPrivateIPv4(address)) return address?.startsWith('100.') && Number(address.split('.')[1]) >= 64 && Number(address.split('.')[1]) <= 127;
-  return true;
-}
-
 function localHttpRequest(url, { method = 'GET', headers = {}, body = '' } = {}) {
   return new Promise((resolve, reject) => {
     const target = new URL(url);
@@ -159,6 +156,11 @@ function discoverUpnpRouter() {
     const socket = dgram.createSocket({ type: 'udp4', reuseAddr: true });
     let finished = false;
     const locations = new Set();
+    const searchTargets = [
+      'urn:schemas-upnp-org:device:InternetGatewayDevice:2',
+      'urn:schemas-upnp-org:device:InternetGatewayDevice:1',
+      'upnp:rootdevice',
+    ];
     const complete = () => {
       if (finished) return;
       finished = true;
@@ -166,7 +168,9 @@ function discoverUpnpRouter() {
       try { socket.close(); } catch {}
       resolve([...locations]);
     };
-    const timer = setTimeout(complete, 1800);
+    // Routers can take a little longer to answer immediately after Windows
+    // changes networks. Keep one short discovery window for all search targets.
+    const timer = setTimeout(complete, 2400);
     socket.on('error', complete);
     socket.on('message', (message) => {
       const response = message.toString('utf8');
@@ -178,15 +182,18 @@ function discoverUpnpRouter() {
       } catch {}
     });
     socket.bind(() => {
-      const query = Buffer.from([
-        'M-SEARCH * HTTP/1.1',
-        'HOST: 239.255.255.250:1900',
-        'MAN: "ssdp:discover"',
-        'MX: 1',
-        'ST: urn:schemas-upnp-org:device:InternetGatewayDevice:1',
-        '', '',
-      ].join('\r\n'));
-      socket.send(query, 1900, '239.255.255.250', (error) => { if (error) complete(); });
+      for (const target of searchTargets) {
+        const message = [
+          'M-SEARCH * HTTP/1.1',
+          'HOST: 239.255.255.250:1900',
+          'MAN: "ssdp:discover"',
+          'MX: 1',
+          `ST: ${target}`,
+          '', '',
+        ].join('\r\n');
+        const query = Buffer.from(message);
+        socket.send(query, 1900, '239.255.255.250', (error) => { if (error) complete(); });
+      }
     });
   });
 }
@@ -231,6 +238,7 @@ async function queryRouterWanIPv4(controlUrl, serviceType) {
 async function refreshRouterNetwork() {
   if (isQuitting || routerLookupInFlight) return;
   routerLookupInFlight = true;
+  let discoverySucceeded = false;
   try {
     const locations = await discoverUpnpRouter();
     let discovered = null;
@@ -240,31 +248,58 @@ async function refreshRouterNetwork() {
         if (candidate && (candidate.manufacturer || candidate.model || candidate.controlUrl)) { discovered = candidate; break; }
       } catch {}
     }
+    // Some gateways answer UPnP description requests but intermittently miss
+    // SSDP searches during startup. MiniUPnP's standard description endpoint
+    // is a safe read-only fallback on the active private IPv4 gateway.
+    if (!discovered) {
+      const gateway = latestHardwarePayload?.network?.gateway;
+      if (isPrivateIPv4(gateway || '')) {
+        try {
+          const candidate = await inspectUpnpDescription(`http://${gateway}:5000/rootDesc.xml`);
+          if (candidate && (candidate.manufacturer || candidate.model || candidate.controlUrl)) discovered = candidate;
+        } catch {}
+      }
+    }
+    discoverySucceeded = Boolean(discovered?.manufacturer || discovered?.model || discovered?.controlUrl);
     let wanIPv4 = null;
     if (discovered?.controlUrl) {
       try { wanIPv4 = await queryRouterWanIPv4(discovered.controlUrl, discovered.serviceType); } catch {}
     }
     const publicIPv4 = publicNetworkDetails.publicIPv4;
-    // A private/CGNAT WAN address proves upstream NAT. A direct address match
-    // proves a public WAN IP. A public mismatch can be caused by a VPN, so leave
-    // it unclassified rather than incorrectly calling it shared.
-    const ipv4Type = wanIPv4 && publicIPv4
-      ? (wanIPv4 === publicIPv4 ? 'real' : isUpstreamNattedIPv4(wanIPv4) ? 'shared' : null)
+    // A direct router-WAN/public-IP match is a real IP. Any verified mismatch
+    // means the public egress is shared or tunneled (including VPN egress).
+    // A failed UPnP response is transient. Retain a prior WAN address only
+    // when discovery confirms this is still the same router; interface changes
+    // clear the address before this refresh is triggered.
+    const previousIdentity = [routerNetworkDetails.routerManufacturer, routerNetworkDetails.routerModel].filter(Boolean).join('|').toLowerCase();
+    const discoveredIdentity = [discovered?.manufacturer, discovered?.model].filter(Boolean).join('|').toLowerCase();
+    const sameRouter = !discoveredIdentity || !previousIdentity || discoveredIdentity === previousIdentity;
+    const effectiveWanIPv4 = wanIPv4 || (sameRouter ? routerNetworkDetails.routerWanIPv4 : null);
+    const ipv4Type = effectiveWanIPv4 && publicIPv4
+      ? (effectiveWanIPv4 === publicIPv4 ? 'real' : 'shared')
       : null;
     const next = {
-      routerManufacturer: discovered?.manufacturer || null,
-      routerModel: discovered?.model || null,
-      routerWanIPv4: wanIPv4,
+      routerManufacturer: discovered?.manufacturer || routerNetworkDetails.routerManufacturer || null,
+      routerModel: discovered?.model || routerNetworkDetails.routerModel || null,
+      routerWanIPv4: effectiveWanIPv4,
       ipv4Type,
     };
     if (JSON.stringify(next) !== JSON.stringify(routerNetworkDetails)) {
       routerNetworkDetails = next;
       if (latestHardwarePayload) sendHardwareStats(latestHardwarePayload);
     }
+    routerDiscoveryFailures = discoverySucceeded ? 0 : routerDiscoveryFailures + 1;
+  } catch {
+    // Discovery is best-effort; a transient router/network error must not
+    // become an unhandled rejection from the background timer.
   } finally {
     routerLookupInFlight = false;
     if (routerRefreshTimer) clearTimeout(routerRefreshTimer);
-    if (!isQuitting) routerRefreshTimer = setTimeout(refreshRouterNetwork, 30 * 60 * 1000);
+    // Retry startup/network-change discovery failures with bounded backoff;
+    // after success, this remains a low-frequency refresh.
+    const retryDelays = [5000, 15000, 60000];
+    const delay = discoverySucceeded ? 30 * 60 * 1000 : retryDelays[Math.min(routerDiscoveryFailures - 1, retryDelays.length - 1)];
+    if (!isQuitting) routerRefreshTimer = setTimeout(refreshRouterNetwork, delay);
   }
 }
 
@@ -453,21 +488,24 @@ function updateFanControlSensors(payload) {
   if (latestHardwarePayload) sendHardwareStats(latestHardwarePayload);
 }
 
+function fanNameKey(name) {
+  return typeof name === 'string' ? name.trim().replace(/\s+/g, ' ').toLowerCase() : '';
+}
+
 function sendHardwareStats(payload) {
   latestHardwarePayload = payload;
-  const fanNames = new Set(latestFanControlSensors.map((fan) => fan.name.toLowerCase()));
-  // Keep a live RPM reading from Afterburner when available. Fan Control can
-  // report an uninitialized zero for its GPU sensor, which must not erase it.
-  const gpuFan = latestFanControlSensors.find((fan) =>
-    /gpu|nvidia/i.test(fan.name) && (fan.value > 0 || payload.gpu?.fanRPM == null),
-  );
+  const preferredFans = Array.isArray(payload.fans) ? payload.fans : [];
+  const preferredFanNames = new Set(preferredFans.map((fan) => fanNameKey(fan.name)));
+  // Fan Control is a last-resort source: keep Windows/BIOS or Afterburner
+  // values first, and only fill in fan names that those sources did not report.
+  const fallbackFans = latestFanControlSensors.filter((fan) => !preferredFanNames.has(fanNameKey(fan.name)));
+  const gpuFanFallback = payload.gpu?.fanRPM === null || payload.gpu?.fanRPM === undefined
+    ? fallbackFans.find((fan) => /gpu|nvidia/i.test(fan.name))
+    : null;
   latestHardwareStats = {
     ...payload,
-    gpu: gpuFan ? { ...payload.gpu, fanRPM: gpuFan.value } : payload.gpu,
-    fans: [
-      ...latestFanControlSensors,
-      ...(payload.fans || []).filter((fan) => !fanNames.has(fan.name.toLowerCase())),
-    ],
+    gpu: gpuFanFallback ? { ...payload.gpu, fanRPM: gpuFanFallback.value } : payload.gpu,
+    fans: [...preferredFans, ...fallbackFans],
     network: { ...payload.network, ...publicNetworkDetails, ...routerNetworkDetails, ...ontOpticalData },
   };
   if (mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()) mainWindow.webContents.send('monitorstats:hardware', latestHardwareStats);
@@ -569,7 +607,9 @@ function resolveWidgetDisplay() {
 
 function applyWidgetLayout() {
   if (!mainWindow || mainWindow.isDestroyed()) return;
-  const area = resolveWidgetDisplay().bounds;
+  // Keep the widget inside the usable desktop area so the Windows taskbar
+  // remains outside its bounds even when Fill the entire monitor is enabled.
+  const area = resolveWidgetDisplay().workArea;
   const width = widgetLayout.fillDisplay ? area.width : Math.min(area.width, Math.max(1, Math.round(area.width * widgetLayout.widthPercent / 100)));
   const height = widgetLayout.fillDisplay ? area.height : Math.min(area.height, Math.max(1, Math.round(area.height * widgetLayout.heightPercent / 100)));
   const margin = widgetLayout.fillDisplay || width >= area.width ? 0 : Math.max(8, Math.round(area.width * 0.02));
@@ -878,7 +918,7 @@ function createWindow() {
   const area = display.workArea;
   const width = area.width;
 
-  mainWindow = new BrowserWindow({
+  const window = new BrowserWindow({
     x: area.x,
     y: area.y,
     width,
@@ -892,6 +932,7 @@ function createWindow() {
     title: 'MonitorStats Widget',
     icon: path.join(__dirname, '..', 'assets', 'monitorstats.ico'),
     backgroundColor: '#06070a',
+    hasShadow: false,
     alwaysOnTop: false,
     skipTaskbar: true,
     webPreferences: {
@@ -899,23 +940,27 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      spellcheck: false,
     },
   });
+  mainWindow = window;
 
-  mainWindow.on('close', (event) => {
+  window.on('close', (event) => {
     if (!isQuitting) {
       event.preventDefault();
-      mainWindow.hide();
+      window.hide();
     }
   });
 
-  mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
-  mainWindow.webContents.once('did-finish-load', () => {
+  window.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
+  window.webContents.once('did-finish-load', () => {
+    if (window.isDestroyed()) return;
     applyWidgetLayout();
-    mainWindow.showInactive();
+    window.showInactive();
     if (latestHardwareStats) sendHardwareStats(latestHardwareStats);
-    if (latestGameFps) mainWindow.webContents.send('monitorstats:game-fps', latestGameFps);
+    if (latestGameFps) window.webContents.send('monitorstats:game-fps', latestGameFps);
   });
+  return window;
 }
 
 function startHardwareCollector() {

@@ -8,7 +8,7 @@ html, body, #root {
 }
 
 body {
-  background: #080a0e;
+  background: transparent;
   color: #f1f5f9;
   font-family: "Segoe UI", Arial, sans-serif;
   font-synthesis: none;
@@ -16,3 +16,41 @@ body {
 }
 
 * { box-sizing: border-box; }
+
+/* These are plain color/style tokens: no animation, filters, blur, or polling. */
+[data-theme="classic"] { --theme-bg:#080a0e; --theme-panel:rgba(2,6,23,.85); --theme-surface:#020617; --theme-raised:#0f172a; --theme-border:#1e293b; --theme-accent:#22d3ee; --theme-text:#f1f5f9; --theme-muted:#94a3b8; --theme-radius:6px; --theme-line:solid; --theme-font:"Segoe UI",Arial,sans-serif; --theme-heading-space:.06em; }
+[data-theme="valorant"] { --theme-bg:#10090b; --theme-panel:#170e10; --theme-surface:#170e10; --theme-raised:#291719; --theme-border:#623039; --theme-accent:#ff5263; --theme-text:#fff4f3; --theme-muted:#c3a0a2; --theme-radius:2px; --theme-line:solid; --theme-font:"Bahnschrift","Segoe UI",sans-serif; --theme-heading-space:.12em; }
+[data-theme="cyberpunk2077"] { --theme-bg:#0b0a06; --theme-panel:#17150b; --theme-surface:#17150b; --theme-raised:#292510; --theme-border:#706326; --theme-accent:#f8e642; --theme-text:#fffce4; --theme-muted:#c4bd8d; --theme-radius:1px; --theme-line:double; --theme-font:Consolas,"Segoe UI",sans-serif; --theme-heading-space:.1em; }
+[data-theme="minecraft"] { --theme-bg:#0b100a; --theme-panel:#111b0e; --theme-surface:#111b0e; --theme-raised:#1c2b15; --theme-border:#52713a; --theme-accent:#8ee35a; --theme-text:#efffe7; --theme-muted:#aec79b; --theme-radius:0; --theme-line:dashed; --theme-font:Consolas,monospace; --theme-heading-space:.04em; }
+[data-theme="fortnite"] { --theme-bg:#0b0b18; --theme-panel:#121329; --theme-surface:#121329; --theme-raised:#202242; --theme-border:#454987; --theme-accent:#8e86ff; --theme-text:#f7f5ff; --theme-muted:#b0b2d0; --theme-radius:14px; --theme-line:solid; --theme-font:"Segoe UI",Arial,sans-serif; --theme-heading-space:.08em; }
+[data-theme="gtav"] { --theme-bg:#09110c; --theme-panel:#101a13; --theme-surface:#101a13; --theme-raised:#1e2b20; --theme-border:#536e51; --theme-accent:#a7dc68; --theme-text:#f6f5e9; --theme-muted:#b2b69d; --theme-radius:4px; --theme-line:double; --theme-font:Georgia,"Segoe UI",serif; --theme-heading-space:.02em; }
+[data-theme="apex"] { --theme-bg:#100908; --theme-panel:#1b100e; --theme-surface:#1b100e; --theme-raised:#2d1a15; --theme-border:#76402d; --theme-accent:#ff7545; --theme-text:#fff4ed; --theme-muted:#c3a292; --theme-radius:3px; --theme-line:solid; --theme-font:"Bahnschrift","Segoe UI",sans-serif; --theme-heading-space:.1em; }
+[data-theme="league"] { --theme-bg:#07111b; --theme-panel:#0b1a27; --theme-surface:#0b1a27; --theme-raised:#122a3a; --theme-border:#586b55; --theme-accent:#e3c46c; --theme-text:#fff8e7; --theme-muted:#b7c3bd; --theme-radius:5px; --theme-line:double; --theme-font:Georgia,"Segoe UI",serif; --theme-heading-space:.09em; }
+[data-theme="counterstrike"] { --theme-bg:#100f0b; --theme-panel:#1b1911; --theme-surface:#1b1911; --theme-raised:#2b281a; --theme-border:#655835; --theme-accent:#e7b34f; --theme-text:#fff8e9; --theme-muted:#c3b99f; --theme-radius:2px; --theme-line:solid; --theme-font:Consolas,"Segoe UI",sans-serif; --theme-heading-space:.08em; }
+[data-theme="overwatch"] { --theme-bg:#0d1116; --theme-panel:#141b22; --theme-surface:#141b22; --theme-raised:#222d37; --theme-border:#53626c; --theme-accent:#ff9b43; --theme-text:#f7fbff; --theme-muted:#adb9c2; --theme-radius:10px; --theme-line:solid; --theme-font:"Segoe UI",Arial,sans-serif; --theme-heading-space:.05em; }
+[data-theme="callofduty"] { --theme-bg:#0c100c; --theme-panel:#141a13; --theme-surface:#141a13; --theme-raised:#20281c; --theme-border:#4b5940; --theme-accent:#c4d389; --theme-text:#f3f5e9; --theme-muted:#b1b99e; --theme-radius:1px; --theme-line:dashed; --theme-font:Consolas,"Segoe UI",sans-serif; --theme-heading-space:.14em; }
+[data-theme="oledblack"] { --theme-bg:#000; --theme-panel:#000; --theme-surface:#000; --theme-raised:#080808; --theme-border:#252525; --theme-accent:#d8eaff; --theme-text:#fff; --theme-muted:#aaa; --theme-radius:0; --theme-line:solid; --theme-font:"Segoe UI",Arial,sans-serif; --theme-heading-space:.04em; }
+[data-theme="aurora"] { --theme-bg:#07110f; --theme-panel:#0c1c19; --theme-surface:#0c1c19; --theme-raised:#142b26; --theme-border:#32675b; --theme-accent:#61e0c2; --theme-text:#edfffa; --theme-muted:#a2cabe; --theme-radius:14px; --theme-line:solid; --theme-font:"Segoe UI",Arial,sans-serif; --theme-heading-space:.06em; }
+[data-theme="sakura"] { --theme-bg:#160d13; --theme-panel:#21131c; --theme-surface:#21131c; --theme-raised:#34202a; --theme-border:#714358; --theme-accent:#ff9cbe; --theme-text:#fff3f7; --theme-muted:#d2adbb; --theme-radius:16px; --theme-line:solid; --theme-font:Georgia,"Segoe UI",serif; --theme-heading-space:.04em; }
+[data-theme="lavender"] { --theme-bg:#100e19; --theme-panel:#1a1727; --theme-surface:#1a1727; --theme-raised:#2a243c; --theme-border:#564a74; --theme-accent:#c9b8ff; --theme-text:#f7f3ff; --theme-muted:#b9afce; --theme-radius:12px; --theme-line:solid; --theme-font:"Segoe UI",Arial,sans-serif; --theme-heading-space:.07em; }
+[data-theme="forest"] { --theme-bg:#09110c; --theme-panel:#111c14; --theme-surface:#111c14; --theme-raised:#1d2d21; --theme-border:#45624a; --theme-accent:#8fdaa0; --theme-text:#f1fff2; --theme-muted:#abc4ad; --theme-radius:8px; --theme-line:solid; --theme-font:Georgia,"Segoe UI",serif; --theme-heading-space:.03em; }
+[data-theme="amber"] { --theme-bg:#120e08; --theme-panel:#1b150c; --theme-surface:#1b150c; --theme-raised:#2c2112; --theme-border:#70532b; --theme-accent:#f5bd5b; --theme-text:#fff8e9; --theme-muted:#cbb68e; --theme-radius:5px; --theme-line:solid; --theme-font:Georgia,"Segoe UI",serif; --theme-heading-space:.03em; }
+[data-theme="ocean"] { --theme-bg:#07101a; --theme-panel:#0b1825; --theme-surface:#0b1825; --theme-raised:#132739; --theme-border:#315674; --theme-accent:#68b9f7; --theme-text:#eff8ff; --theme-muted:#a7bed0; --theme-radius:10px; --theme-line:solid; --theme-font:"Segoe UI",Arial,sans-serif; --theme-heading-space:.07em; }
+[data-theme="sepia"] { --theme-bg:#17110b; --theme-panel:#21190f; --theme-surface:#21190f; --theme-raised:#332719; --theme-border:#705638; --theme-accent:#e4bd83; --theme-text:#fff4df; --theme-muted:#cbb99c; --theme-radius:4px; --theme-line:solid; --theme-font:Georgia,"Segoe UI",serif; --theme-heading-space:.02em; }
+[data-theme="monochrome"] { --theme-bg:#0b0b0b; --theme-panel:#151515; --theme-surface:#151515; --theme-raised:#242424; --theme-border:#505050; --theme-accent:#d5d5d5; --theme-text:#f5f5f5; --theme-muted:#aaa; --theme-radius:3px; --theme-line:solid; --theme-font:Arial,"Segoe UI",sans-serif; --theme-heading-space:.12em; }
+
+.theme-shell { background:var(--theme-bg); color:var(--theme-text); font-family:var(--theme-font); }
+.theme-panel { background-color:var(--theme-panel) !important; border-color:var(--theme-border) !important; border-radius:var(--theme-radius) !important; border-style:var(--theme-line); }
+.theme-panel h2 { letter-spacing:var(--theme-heading-space); }
+.theme-settings-window { border-color:var(--theme-border) !important; border-radius:calc(var(--theme-radius) + 4px) !important; }
+[data-theme] .text-cyan-300, [data-theme] .text-cyan-400, [data-theme] .text-cyan-200 { color:var(--theme-accent) !important; }
+[data-theme] .bg-cyan-400 { background-color:var(--theme-accent) !important; }
+[data-theme] [class~="hover:bg-cyan-300"]:hover { background-color:var(--theme-accent) !important; }
+[data-theme] .accent-cyan-400 { accent-color:var(--theme-accent) !important; }
+[data-theme] .text-white, [data-theme] .text-slate-100, [data-theme] .text-slate-200 { color:var(--theme-text) !important; }
+[data-theme] .text-slate-300, [data-theme] .text-slate-400, [data-theme] .text-slate-500, [data-theme] .text-slate-600 { color:var(--theme-muted) !important; }
+[data-theme] .border-slate-800, [data-theme] .border-slate-700, [data-theme] .border-slate-600 { border-color:var(--theme-border) !important; }
+[data-theme] .bg-slate-950, [data-theme] [class~="bg-slate-950/85"], [data-theme] [class~="bg-slate-950/90"] { background-color:var(--theme-surface) !important; }
+[data-theme] .bg-slate-900 { background-color:var(--theme-panel) !important; }
+[data-theme] .bg-slate-800 { background-color:var(--theme-raised) !important; }
+[data-theme] .theme-panel { background-color:var(--theme-panel) !important; }

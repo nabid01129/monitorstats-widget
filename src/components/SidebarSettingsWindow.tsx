@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { DisplaySettings, HardwareStats, MonitorInfo } from '../types/stats';
+import { THEME_OPTIONS } from '../utils/defaultSpecs';
 
 interface Props {
   isOpen: boolean;
@@ -38,13 +39,26 @@ export const SidebarSettingsWindow: React.FC<Props> = ({ isOpen, onClose, settin
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <section className="max-h-full w-full max-w-sm overflow-y-auto rounded-lg border border-slate-700 bg-slate-900 p-4 shadow-xl" aria-label="MonitorStats settings">
+      <section className="theme-settings-window max-h-full w-full max-w-sm overflow-y-auto rounded-lg border border-slate-700 bg-slate-900 p-4 shadow-xl" aria-label="MonitorStats settings">
         <header className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-semibold">MonitorStats settings</h2>
           <button className="rounded px-2 py-1 text-slate-300 hover:bg-slate-800" onClick={onClose} aria-label="Close settings">✕</button>
         </header>
 
         <div className="space-y-2 text-sm">
+          <label className="block rounded border border-slate-700 bg-slate-950 p-3 text-xs text-slate-400">Color theme
+            <select className="mt-1 w-full rounded border border-slate-700 bg-slate-900 px-2 py-2 text-sm text-white" value={draft.theme} onChange={(event) => setDraft({ ...draft, theme: event.target.value as DisplaySettings['theme'] })}>
+              <option value="classic">Classic · original cyan</option>
+              {(['Gamer style', 'Aesthetic style'] as const).map((group) => (
+                <optgroup key={group} label={group}>
+                  {THEME_OPTIONS.filter((theme) => theme.group === group).map((theme) => (
+                    <option key={theme.id} value={theme.id}>{theme.label}</option>
+                  ))}
+                </optgroup>
+              ))}
+            </select>
+            <small className="mt-1 block">Static styles only; no animation, blur, or extra polling. OLED Black is pure black.</small>
+          </label>
           <div className="rounded border border-slate-700 bg-slate-950 p-3">
             <strong className="mb-2 block">Displays and layout</strong>
             <label className="mb-3 block text-xs text-slate-400">Show on

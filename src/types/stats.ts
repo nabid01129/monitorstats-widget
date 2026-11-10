@@ -128,7 +128,10 @@ export interface HardwareStats {
   source: string;
 }
 
+export type ThemeId = 'classic' | 'valorant' | 'cyberpunk2077' | 'minecraft' | 'fortnite' | 'gtav' | 'apex' | 'league' | 'counterstrike' | 'overwatch' | 'callofduty' | 'oledblack' | 'aurora' | 'sakura' | 'lavender' | 'forest' | 'amber' | 'ocean' | 'sepia' | 'monochrome';
+
 export interface DisplaySettings {
+  theme: ThemeId;
   runAtStartup: boolean;
   showFpsBox: boolean;
   fpsMonitor: string;

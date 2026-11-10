@@ -1,6 +1,29 @@
-import { DisplaySettings } from '../types/stats';
+import { DisplaySettings, ThemeId } from '../types/stats';
+
+export const THEME_OPTIONS: { id: ThemeId; label: string; group: 'Gamer style' | 'Aesthetic style' }[] = [
+  { id: 'valorant', label: 'VALORANT · Protocol Red', group: 'Gamer style' },
+  { id: 'cyberpunk2077', label: 'Cyberpunk 2077 · Night City', group: 'Gamer style' },
+  { id: 'minecraft', label: 'Minecraft · Overworld', group: 'Gamer style' },
+  { id: 'fortnite', label: 'Fortnite · Battle Royale', group: 'Gamer style' },
+  { id: 'gtav', label: 'Grand Theft Auto V · Los Santos', group: 'Gamer style' },
+  { id: 'apex', label: 'Apex Legends · Outlands', group: 'Gamer style' },
+  { id: 'league', label: 'League of Legends · Hextech', group: 'Gamer style' },
+  { id: 'counterstrike', label: 'Counter-Strike 2 · Defuse', group: 'Gamer style' },
+  { id: 'overwatch', label: 'Overwatch 2 · Hero Select', group: 'Gamer style' },
+  { id: 'callofduty', label: 'Call of Duty · Field Ops', group: 'Gamer style' },
+  { id: 'oledblack', label: 'OLED Black · Pure black', group: 'Aesthetic style' },
+  { id: 'aurora', label: 'Aurora · Northern lights', group: 'Aesthetic style' },
+  { id: 'sakura', label: 'Sakura · Rose dusk', group: 'Aesthetic style' },
+  { id: 'lavender', label: 'Lavender · Soft violet', group: 'Aesthetic style' },
+  { id: 'forest', label: 'Forest · Botanical', group: 'Aesthetic style' },
+  { id: 'amber', label: 'Amber · Espresso', group: 'Aesthetic style' },
+  { id: 'ocean', label: 'Ocean · Deep blue', group: 'Aesthetic style' },
+  { id: 'sepia', label: 'Sepia · Warm paper', group: 'Aesthetic style' },
+  { id: 'monochrome', label: 'Monochrome · Graphite', group: 'Aesthetic style' },
+];
 
 export const DEFAULT_DISPLAY_SETTINGS: DisplaySettings = {
+  theme: 'classic',
   runAtStartup: true,
   showFpsBox: true,
   fpsMonitor: '1',

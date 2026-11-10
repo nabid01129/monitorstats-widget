@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { DisplaySettings, GameTelemetry, HardwareStats, MonitorInfo } from './types/stats';
-import { DEFAULT_DISPLAY_SETTINGS } from './utils/defaultSpecs';
+import { DEFAULT_DISPLAY_SETTINGS, THEME_OPTIONS } from './utils/defaultSpecs';
 import { StatsView } from './components/StatsView';
 import { ControlToolbar } from './components/ControlToolbar';
 import { SidebarSettingsWindow } from './components/SidebarSettingsWindow';
@@ -31,6 +31,8 @@ function loadSettings(): DisplaySettings {
   try {
     const stored = JSON.parse(localStorage.getItem('monitorstats_settings') || '{}') as Partial<DisplaySettings>;
     return {
+      theme: THEME_OPTIONS.some((option) => option.id === stored.theme)
+        ? stored.theme as DisplaySettings['theme'] : DEFAULT_DISPLAY_SETTINGS.theme,
       runAtStartup: stored.runAtStartup ?? DEFAULT_DISPLAY_SETTINGS.runAtStartup,
       showFpsBox: stored.showFpsBox ?? DEFAULT_DISPLAY_SETTINGS.showFpsBox,
       fpsMonitor: typeof stored.fpsMonitor === 'string' && /^\d+$/.test(stored.fpsMonitor) ? stored.fpsMonitor : '1',
@@ -131,7 +133,7 @@ export default function App() {
   }, []);
 
   return (
-    <div className="relative h-screen overflow-hidden bg-[#080a0e] text-white font-sans">
+    <div className="theme-shell relative h-screen overflow-hidden text-white font-sans" data-theme={settings.theme}>
       <ControlToolbar
         onOpenSettings={() => setIsSettingsOpen(true)}
         onRefresh={() => window.monitorStatsShell?.refreshHardware()}

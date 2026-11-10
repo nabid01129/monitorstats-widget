@@ -9,17 +9,18 @@ interface Props {
 const number = (value: number | null | undefined, digits = 1) =>
   value === null || value === undefined || !Number.isFinite(value) ? '—' : value.toLocaleString(undefined, { maximumFractionDigits: digits });
 
-const percent = (value: number | null) => value === null ? '—' : `${number(value)}%`;
-const speed = (value: number | null) => value === null ? '—' : value >= 1024 ? `${number(value / 1024, 2)} MB/s` : `${number(value)} KB/s`;
+const present = (value: number | null | undefined): value is number => value !== null && value !== undefined && Number.isFinite(value);
+const percent = (value: number | null) => present(value) ? `${number(value)}%` : '—';
+const speed = (value: number | null) => !present(value) ? '—' : value >= 1024 ? `${number(value / 1024, 2)} MB/s` : `${number(value)} KB/s`;
 const networkSpeed = (value: number | null, unit: DisplaySettings['networkSpeedUnit']) => {
-  if (value === null) return '—';
+  if (!present(value)) return '—';
   const valueInMBps = value * 0.001024;
   return unit === 'Mbps' ? `${number(valueInMBps * 8, 2)} Mbps` : `${number(valueInMBps, 2)} MB/s`;
 };
 const customName = (settings: DisplaySettings, key: string, detected: string) => settings.customNames[key]?.trim() || detected;
 
 const Panel: React.FC<{ title: string; children: React.ReactNode; className?: string; headerAction?: React.ReactNode }> = ({ title, children, className = '', headerAction }) => (
-  <section className={`min-w-0 rounded-md border border-slate-800 bg-slate-950/85 p-3 ${className}`}>
+  <section className={`theme-panel min-w-0 rounded-md border border-slate-800 bg-slate-950/85 p-3 ${className}`}>
     <div className="mb-2 flex items-center justify-between gap-2">
       <h2 className="text-xs font-semibold uppercase tracking-wide text-cyan-300">{title}</h2>
       {headerAction}
@@ -34,13 +35,16 @@ const Bar: React.FC<{ value: number | null }> = ({ value }) => (
   </div>
 );
 
-const Reading: React.FC<{ label: React.ReactNode; value: string; detail?: string; className?: string; valueClassName?: string; truncateValue?: boolean }> = ({ label, value, detail, className = '', valueClassName = 'text-sm', truncateValue = true }) => (
-  <div className={`min-w-0 ${className}`}>
-    <div className="text-[10px] uppercase text-slate-500">{label}</div>
-    <div className={`${truncateValue ? 'truncate' : 'whitespace-normal break-all'} ${valueClassName} font-semibold tabular-nums text-slate-100`}>{value}</div>
-    {detail && <div className="truncate text-[10px] text-slate-500">{detail}</div>}
-  </div>
-);
+const Reading: React.FC<{ label: React.ReactNode; value: string; detail?: string; className?: string; valueClassName?: string; truncateValue?: boolean }> = ({ label, value, detail, className = '', valueClassName = 'text-sm', truncateValue = true }) => {
+  if (!value || value === '—') return null;
+  return (
+    <div className={`min-w-0 ${className}`}>
+      <div className="text-[10px] uppercase text-slate-500">{label}</div>
+      <div className={`${truncateValue ? 'truncate' : 'whitespace-normal break-all'} ${valueClassName} font-semibold tabular-nums text-slate-100`}>{value}</div>
+      {detail && <div className="truncate text-[10px] text-slate-500">{detail}</div>}
+    </div>
+  );
+};
 
 const SystemPanel = React.memo(({ stats }: { stats: HardwareStats | null }) => {
   const [clockNow, setClockNow] = useState(() => Date.now());
@@ -111,7 +115,7 @@ const GameFrameRatePanel = React.memo(({ monitor }: { monitor: string }) => {
         <span>Game monitor</span><span>Monitor {monitor}</span>
       </div>
       <div className="flex items-end justify-between gap-3">
-        <div className="text-4xl font-bold tabular-nums text-white">{number(gameTelemetry.fps, 0)} <span className="text-sm font-medium text-cyan-300">FPS</span></div>
+        {present(gameTelemetry.fps) && <div className="text-4xl font-bold tabular-nums text-white">{number(gameTelemetry.fps, 0)} <span className="text-sm font-medium text-cyan-300">FPS</span></div>}
       </div>
       <svg className="mt-2 h-12 w-full rounded border border-slate-800 bg-slate-900/60" viewBox="0 0 200 42" preserveAspectRatio="none" role="img" aria-label="Recent frame-time graph; taller peaks indicate longer frames">
         <line x1="0" y1="38" x2="200" y2="38" stroke="#334155" strokeWidth="1" />
@@ -129,22 +133,23 @@ const GameFrameRatePanel = React.memo(({ monitor }: { monitor: string }) => {
   );
 });
 
-const ProcessPanel = React.memo(({ ram }: { ram: HardwareStats['ram'] | undefined }) => (
-  <Panel title="Processes">
-    <div className="mb-2 flex items-center justify-between gap-2 text-xs">
+const ProcessPanel = React.memo(({ ram }: { ram: HardwareStats['ram'] | undefined }) => {
+  if (!ram || (!present(ram.processCount) && !ram.topProcesses.length)) return null;
+  return <Panel title="Processes">
+    {present(ram.processCount) && <div className="mb-2 flex items-center justify-between gap-2 text-xs">
       <span className="text-slate-400">Running processes</span>
-      <span className="tabular-nums text-white">{ram?.processCount ?? '—'}</span>
-    </div>
-    {ram?.topProcesses?.length ? <div className="space-y-1">
+      <span className="tabular-nums text-white">{ram.processCount}</span>
+    </div>}
+    {ram.topProcesses.length > 0 && <div className="space-y-1">
       {ram.topProcesses.map((process, index) => (
         <div key={`${process.name}-${index}`} className="flex min-w-0 items-center justify-between gap-2 text-xs">
           <span className="truncate text-slate-300" title={process.name}>{index + 1}. {process.name}</span>
           <span className="shrink-0 tabular-nums text-slate-400">{process.workingSetMB >= 1024 ? `${number(process.workingSetMB / 1024, 2)} GB` : `${number(process.workingSetMB, 0)} MB`}</span>
         </div>
       ))}
-    </div> : <div className="text-xs text-slate-500">Process data unavailable</div>}
-  </Panel>
-), (previous, next) => {
+    </div>}
+  </Panel>;
+}, (previous, next) => {
   const previousTop = previous.ram?.topProcesses ?? [];
   const nextTop = next.ram?.topProcesses ?? [];
   return previous.ram?.processCount === next.ram?.processCount
@@ -160,13 +165,18 @@ const StatsViewComponent: React.FC<Props> = ({ stats, settings }) => {
   const ramStickCapacities = ram?.stickCapacitiesGB ?? [];
   const sameStickSize = ramStickCapacities.length > 0 && ramStickCapacities.every((size) => size === ramStickCapacities[0]);
   const ramStickSummary = ram?.stickCount
-    ? `${ram.stickCount} stick${ram.stickCount === 1 ? '' : 's'} · ${sameStickSize
-      ? `${number(ramStickCapacities[0], 2)} GB each`
+    ? `${ram.stickCount} stick${ram.stickCount === 1 ? '' : 's'}${sameStickSize
+      ? ` · ${number(ramStickCapacities[0], 2)} GB each`
       : ramStickCapacities.length
-        ? `${ramStickCapacities.map((size) => `${number(size, 2)} GB`).join(' + ')}`
-        : 'capacity unavailable'}`
-    : 'DIMM layout unavailable';
-  const ramDetails = [ramStickSummary, ram?.speedMTs ? `${number(ram.speedMTs, 0)} MT/s` : null, ram?.channelMode]
+        ? ` · ${ramStickCapacities.map((size) => `${number(size, 2)} GB`).join(' + ')}`
+        : ''}`
+    : null;
+  const ramDetails = [
+    ramStickSummary,
+    ram?.generation && !/unavailable|not reported/i.test(ram.generation) ? ram.generation : null,
+    present(ram?.speedMTs) ? `${number(ram.speedMTs, 0)} MT/s` : null,
+    ram?.channelMode && !/unavailable|not reported/i.test(ram.channelMode) ? ram.channelMode : null,
+  ]
     .filter(Boolean).join(' · ');
   return (
     <div className="grid h-full min-h-0 grid-cols-2 gap-2 overflow-hidden text-sm">
@@ -183,11 +193,9 @@ const StatsViewComponent: React.FC<Props> = ({ stats, settings }) => {
             <Reading label="Temp" value={stats?.cpu.tempC === null || !stats ? '—' : `${number(stats.cpu.tempC)}°C`} />
             <Reading label="Power" value={stats?.cpu.powerW === null || !stats ? '—' : `${number(stats.cpu.powerW)} W`} />
             <Reading label="Max core" value={stats?.cpu.coreTempsC.length ? `${number(Math.max(...stats.cpu.coreTempsC))}°C` : '—'} />
-            {cpuFans.length > 0
-              ? cpuFans.map((fan) => <Reading key={fan.name} label={fan.name} value={`${number(fan.value)}${fan.units ? ` ${fan.units}` : ''}`} />)
-              : <Reading label="CPU fan" value="—" />}
+            {cpuFans.map((fan) => <Reading key={fan.name} label={fan.name} value={`${number(fan.value)}${fan.units ? ` ${fan.units}` : ''}`} />)}
           </div>
-          <div className="mt-2"><Bar value={stats?.cpu.loadPercent ?? null} /></div>
+          {present(stats?.cpu.loadPercent) && <div className="mt-2"><Bar value={stats.cpu.loadPercent} /></div>}
           {settings.showCoreDetails && Boolean(stats?.cpu.cores.length) && (
             <div className="mt-3 grid grid-cols-6 gap-x-2 gap-y-1">
               {stats?.cpu.cores.map((load, index) => (
@@ -203,7 +211,7 @@ const StatsViewComponent: React.FC<Props> = ({ stats, settings }) => {
 
         <Panel title="Graphics">
           <div className="mb-2 truncate text-sm font-semibold text-white" title={stats?.gpu.model}>{customName(settings, 'gpu', stats?.gpu.model || 'Detecting graphics device…')}</div>
-          <div className="mb-2"><Bar value={stats?.gpu.coreLoadPercent ?? null} /></div>
+          {present(stats?.gpu.coreLoadPercent) && <div className="mb-2"><Bar value={stats.gpu.coreLoadPercent} /></div>}
           <div className="grid grid-cols-3 gap-2">
             <Reading label="GPU load" value={percent(stats?.gpu.coreLoadPercent ?? null)} />
             <Reading label="Temperature" value={stats?.gpu.tempC === null || !stats ? '—' : `${number(stats.gpu.tempC)}°C`} />
@@ -213,9 +221,9 @@ const StatsViewComponent: React.FC<Props> = ({ stats, settings }) => {
             <Reading label="Fan" value={stats?.gpu.fanPercent === null || !stats ? '—' : `${number(stats.gpu.fanPercent)}%`} />
             <Reading label="Fan RPM" value={stats?.gpu.fanRPM === null || !stats ? '—' : `${number(stats.gpu.fanRPM, 0)} RPM`} />
           </div>
-          <div className="mt-2 border-t border-slate-800 pt-2 text-xs text-slate-400">
-            VRAM: {stats?.gpu.vramUsedGB === null || !stats ? '—' : `${number(stats.gpu.vramUsedGB, 2)} GB`} / {stats?.gpu.vramTotalGB === null || !stats ? '—' : `${number(stats.gpu.vramTotalGB, 2)} GB`}
-          </div>
+          {(present(stats?.gpu.vramUsedGB) || present(stats?.gpu.vramTotalGB)) && <div className="mt-2 border-t border-slate-800 pt-2 text-xs text-slate-400">
+            VRAM: {present(stats?.gpu.vramUsedGB) ? `${number(stats.gpu.vramUsedGB, 2)} GB` : ''}{present(stats?.gpu.vramUsedGB) && present(stats?.gpu.vramTotalGB) ? ' / ' : ''}{present(stats?.gpu.vramTotalGB) ? `${number(stats.gpu.vramTotalGB, 2)} GB` : ''}
+          </div>}
         </Panel>
 
         <ProcessPanel ram={stats?.ram} />
@@ -225,10 +233,10 @@ const StatsViewComponent: React.FC<Props> = ({ stats, settings }) => {
       <div className="flex min-h-0 flex-col gap-2 overflow-hidden">
         <Panel title="Memory">
           <div className="mb-2">
-            <div className="text-sm font-semibold text-white">{customName(settings, 'ram', stats?.ram.spec || 'Detecting memory…')}</div>
-            <div className="mt-0.5 text-[10px] text-slate-400" title={ramDetails}>{ramDetails || 'Detecting DIMMs…'}</div>
+            {stats?.ram.spec && <div className="text-sm font-semibold text-white">{customName(settings, 'ram', stats.ram.spec)}</div>}
+            {ramDetails && <div className="mt-0.5 text-[10px] text-slate-400" title={ramDetails}>{ramDetails}</div>}
           </div>
-          <div className="mb-2"><Bar value={stats?.ram.loadPercent ?? null} /></div>
+          {present(stats?.ram.loadPercent) && <div className="mb-2"><Bar value={stats.ram.loadPercent} /></div>}
           <div className="grid grid-cols-3 gap-2 text-xs">
             <Reading label="Used" value={stats?.ram.usedGB === null || !stats ? '—' : `${number(stats.ram.usedGB, 2)} GB`} />
             <Reading label="Free" value={stats?.ram.freeGB === null || !stats ? '—' : `${number(stats.ram.freeGB, 2)} GB`} />
@@ -236,55 +244,60 @@ const StatsViewComponent: React.FC<Props> = ({ stats, settings }) => {
           </div>
         </Panel>
 
-        <Panel title={`Storage volumes · ${stats?.drives.length ?? 0}`} className="min-h-0 flex-1 overflow-hidden">
-          {stats?.drives.length ? <div className="space-y-2">
-            {stats.drives.map((drive) => (
+        {Boolean(stats?.drives.length) && <Panel title={`Storage volumes · ${stats?.drives.length ?? 0}`} className="min-h-0 flex-1 overflow-hidden">
+          <div className="space-y-2">
+            {stats?.drives.map((drive) => (
               <div key={drive.id} className="rounded border border-slate-800 bg-slate-900/70 p-2">
                 <div className="flex items-center justify-between gap-2">
                   <div className="truncate text-xs font-medium text-white" title={drive.name}>{customName(settings, `drive:${drive.id}`, drive.name)}</div>
                   <span className="shrink-0 text-[10px] text-cyan-300">{drive.type}</span>
                 </div>
-                <div className="my-1.5"><Bar value={drive.loadPercent} /></div>
-                <div className="grid grid-cols-3 gap-1 text-[10px] text-slate-400">
-                  <span>Used {drive.usedGB === null ? '—' : `${number(drive.usedGB)} GB`}</span>
-                  <span>Free {drive.freeGB === null ? '—' : `${number(drive.freeGB)} GB`}</span>
-                  <span>Total {drive.totalGB === null ? '—' : `${number(drive.totalGB)} GB`}</span>
-                </div>
-                <div className="mt-1 flex justify-between text-[10px] text-slate-500"><span>Read {speed(drive.readKBps)}</span><span>Write {speed(drive.writeKBps)}</span></div>
-                <div className="mt-1 flex flex-wrap gap-x-3 text-[10px] text-slate-400">
-                  <span className={drive.health?.startsWith('Healthy') ? 'text-emerald-400' : drive.health ? 'text-amber-300' : ''}>Drive health {drive.health || '—'}</span>
-                  <span>Temp {drive.tempC !== null ? `${number(drive.tempC)}°C` : '—'}</span>
-                  <span>Wear used {drive.wearPercent !== null ? `${number(drive.wearPercent)}%` : '—'}</span>
-                  <span>Power-on {drive.powerOnHours !== null ? `${number(drive.powerOnHours, 0)} h` : '—'}</span>
-                  <span>Host writes {drive.hostWritesTB !== null ? `${number(drive.hostWritesTB, 2)} TB` : '—'}</span>
-                </div>
+                {present(drive.loadPercent) && <div className="my-1.5"><Bar value={drive.loadPercent} /></div>}
+                {(present(drive.usedGB) || present(drive.freeGB) || present(drive.totalGB)) && <div className="grid grid-cols-3 gap-1 text-[10px] text-slate-400">
+                  {present(drive.usedGB) && <span>Used {number(drive.usedGB)} GB</span>}
+                  {present(drive.freeGB) && <span>Free {number(drive.freeGB)} GB</span>}
+                  {present(drive.totalGB) && <span>Total {number(drive.totalGB)} GB</span>}
+                </div>}
+                {(present(drive.readKBps) || present(drive.writeKBps)) && <div className="mt-1 flex justify-between text-[10px] text-slate-500">
+                  {present(drive.readKBps) && <span>Read {speed(drive.readKBps)}</span>}
+                  {present(drive.writeKBps) && <span>Write {speed(drive.writeKBps)}</span>}
+                </div>}
+                {(drive.health || present(drive.tempC) || present(drive.wearPercent) || present(drive.powerOnHours) || present(drive.hostWritesTB)) && <div className="mt-1 flex flex-wrap gap-x-3 text-[10px] text-slate-400">
+                  {drive.health && <span className={drive.health.startsWith('Healthy') ? 'text-emerald-400' : 'text-amber-300'}>Drive health {drive.health}</span>}
+                  {present(drive.tempC) && <span>Temp {number(drive.tempC)}°C</span>}
+                  {present(drive.wearPercent) && <span>Wear used {number(drive.wearPercent)}%</span>}
+                  {present(drive.powerOnHours) && <span>Power-on {number(drive.powerOnHours, 0)} h</span>}
+                  {present(drive.hostWritesTB) && <span>Host writes {number(drive.hostWritesTB, 2)} TB</span>}
+                </div>}
               </div>
             ))}
-          </div> : <p className="text-xs text-slate-500">No local volumes detected.</p>}
-        </Panel>
+          </div>
+        </Panel>}
 
         <Panel title="Network" headerAction={<button type="button" onClick={() => setShowNetworkIPs((visible) => !visible)} aria-label={showNetworkIPs ? 'Hide IP addresses' : 'Show IP addresses'} className="rounded border border-slate-700 px-2 py-0.5 text-[10px] text-slate-300 hover:border-cyan-500 hover:text-cyan-200">{showNetworkIPs ? 'Hide IPs' : 'Show IPs'}</button>}>
-          <div className="truncate text-xs font-semibold text-white" title={stats?.network.adapter || undefined}>{stats?.network.name || 'Detecting network adapters…'}</div>
-          <div className="mb-2 truncate text-[10px] text-slate-500">{stats?.network.adapter || 'Network adapter'} · {stats?.network.profile || 'No active network'} · {stats?.network.linkSpeed || '—'}</div>
+          {stats?.network.name && <div className="truncate text-xs font-semibold text-white" title={stats.network.adapter || undefined}>{stats.network.name}</div>}
+          {[stats?.network.adapter, stats?.network.profile, stats?.network.linkSpeed].filter(Boolean).length > 0 && <div className="mb-2 truncate text-[10px] text-slate-500">{[stats?.network.adapter, stats?.network.profile, stats?.network.linkSpeed].filter(Boolean).join(' · ')}</div>}
           {(stats?.network.routerManufacturer || stats?.network.routerModel) && <div className="mb-2 truncate text-[10px] text-slate-400" title={[stats.network.routerManufacturer, stats.network.routerModel].filter(Boolean).join(' ')}>Router · {[stats.network.routerManufacturer, stats.network.routerModel].filter(Boolean).join(' ')}</div>}
           <div className="grid grid-cols-2 gap-x-3 gap-y-2">
-            <Reading label="Received" value={networkSpeed(stats?.network.inKBps ?? null, settings.networkSpeedUnit)} />
-            <Reading label="Sent" value={networkSpeed(stats?.network.outKBps ?? null, settings.networkSpeedUnit)} />
-            <Reading label="Local IP" value={showNetworkIPs ? (stats?.network.localIP || '—') : 'Hidden'} />
-            <Reading label={<span className="inline-flex items-center gap-1">Public IPv4{stats?.network.ipv4Type && <span className={`rounded px-1 py-px text-[9px] font-semibold normal-case tracking-normal ${stats.network.ipv4Type === 'shared' ? 'bg-red-950 text-red-300' : 'bg-emerald-950 text-emerald-300'}`}>{stats.network.ipv4Type === 'shared' ? 'Shared IP' : 'Real IP'}</span>}</span>} value={showNetworkIPs ? (stats?.network.publicIPv4 || '—') : 'Hidden'} />
-            <Reading label="Public IPv6" value={showNetworkIPs ? (stats?.network.publicIPv6 || '—') : 'Hidden'} className="col-span-2" valueClassName="text-[10px] leading-tight" truncateValue={false} />
-            <Reading label="ISP" value={stats?.network.provider || 'Detecting…'} />
-            <Reading
+            {present(stats?.network.inKBps) && <Reading label="Received" value={networkSpeed(stats.network.inKBps, settings.networkSpeedUnit)} />}
+            {present(stats?.network.outKBps) && <Reading label="Sent" value={networkSpeed(stats.network.outKBps, settings.networkSpeedUnit)} />}
+            {stats?.network.localIP && <Reading label="Local IP" value={showNetworkIPs ? stats.network.localIP : 'Hidden'} />}
+            {stats?.network.publicIPv4 && <Reading label={<span className="inline-flex items-center gap-1">Public IPv4{stats.network.ipv4Type && <span className={`rounded px-1 py-px text-[9px] font-semibold normal-case tracking-normal ${stats.network.ipv4Type === 'shared' ? 'bg-red-950 text-red-300' : 'bg-emerald-950 text-emerald-300'}`}>{stats.network.ipv4Type === 'shared' ? 'Shared IP' : 'Real IP'}</span>}</span>} value={showNetworkIPs ? stats.network.publicIPv4 : 'Hidden'} />}
+            {stats?.network.publicIPv6 && <Reading label="Public IPv6" value={showNetworkIPs ? stats.network.publicIPv6 : 'Hidden'} className="col-span-2" valueClassName="text-[10px] leading-tight" truncateValue={false} />}
+            {stats?.network.provider && !/detecting/i.test(stats.network.provider) && <Reading label="ISP" value={stats.network.provider} />}
+            {present(stats?.network.rxOpticalPowerDbm) && <Reading
               label="RX Optical Power"
-              value={stats?.network.rxOpticalPowerDbm === null || stats?.network.rxOpticalPowerDbm === undefined ? (stats?.network.opticalStatus === 'connecting' ? 'Reading…' : '—') : `${number(stats.network.rxOpticalPowerDbm, 2)} dBm`}
-              detail={stats?.network.opticalUpdatedAt ? `${stats.network.opticalStatus === 'live' ? 'Updated' : `Last value · ${stats.network.opticalError || 'ONT unavailable'}`} ${new Date(stats.network.opticalUpdatedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` : stats?.network.opticalStatus === 'unavailable' ? `ONT · ${stats.network.opticalError || 'unavailable'}` : 'Huawei ONT'}
-            />
+              value={`${number(stats.network.rxOpticalPowerDbm, 2)} dBm`}
+              detail={stats.network.opticalUpdatedAt ? `${stats.network.opticalStatus === 'live' ? 'Updated' : `Last value · ${stats.network.opticalError || 'ONT unavailable'}`} ${new Date(stats.network.opticalUpdatedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` : undefined}
+            />}
           </div>
-          <div className="mt-1 flex items-center justify-between gap-2 text-[10px]">
-            <span className="truncate text-cyan-300" title={showNetworkIPs && stats?.network.dnsResolver ? `${stats.network.dnsResolver.ip}${stats.network.dnsResolver.hostname ? ` · ${stats.network.dnsResolver.hostname}` : ''}` : undefined}>Active DNS {stats?.network.dnsResolver ? `${stats.network.dnsResolver.name}${stats.network.dnsResolver.country ? ` · ${stats.network.dnsResolver.country}` : ''}` : 'Detecting resolver…'}</span>
-            <span className="shrink-0 text-slate-400">Ping {stats?.network.dnsResolver?.pingMs === null || stats?.network.dnsResolver?.pingMs === undefined ? '—' : `${stats.network.dnsResolver.pingMs} ms`}</span>
-          </div>
-          {stats?.network.dnsResolver?.location && <div className="truncate text-[10px] text-slate-500">Server {stats.network.dnsResolver.location}</div>}
+          {stats?.network.dnsResolver && <>
+            {(stats.network.dnsResolver.name || present(stats.network.dnsResolver.pingMs)) && <div className="mt-1 flex items-center justify-between gap-2 text-[10px]">
+              {stats.network.dnsResolver.name && <span className="truncate text-cyan-300" title={showNetworkIPs ? `${stats.network.dnsResolver.ip}${stats.network.dnsResolver.hostname ? ` · ${stats.network.dnsResolver.hostname}` : ''}` : undefined}>Active DNS {stats.network.dnsResolver.name}{stats.network.dnsResolver.country ? ` · ${stats.network.dnsResolver.country}` : ''}</span>}
+              {present(stats.network.dnsResolver.pingMs) && <span className="shrink-0 text-slate-400">Ping {stats.network.dnsResolver.pingMs} ms</span>}
+            </div>}
+            {stats.network.dnsResolver.location && <div className="truncate text-[10px] text-slate-500">Server {stats.network.dnsResolver.location}</div>}
+          </>}
         </Panel>
       </div>
     </div>

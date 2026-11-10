@@ -136,6 +136,7 @@ internal static class FanControlReader
 
     private static int Main(string[] args)
     {
+        try { Process.GetCurrentProcess().PriorityClass = ProcessPriorityClass.BelowNormal; } catch { }
         var interval = 1000;
         int parsed;
         if (args.Length > 0 && Int32.TryParse(args[0], out parsed)) interval = Math.Max(1000, Math.Min(10000, parsed));
