@@ -1,13 +1,16 @@
 # Changelog
 
-## 1.3.55 — 2026-11-11
+## 1.3.56 — 2026-11-11
 
-- Keep the desktop widget visible when Windows runs Show desktop. Normal application windows can still appear above it, and the taskbar remains usable.
+- Restored the 1.3.54 desktop behavior selected as the stable baseline.
+- Start the Fan Control reader only when primary sensors do not provide CPU or GPU fan RPM, and stop it when those readings become available.
+- Query NVIDIA SMI only to fill GPU values that Afterburner does not provide.
 
 ## 1.3.54 — 2026-11-10
 
 - Prefer the active default gateway for router identification and WAN-IP checks.
 - Ignore UPnP responses from other LAN devices, including virtual gateways published by security software, so router details and Real IP/Shared IP status use the correct device.
+- Start the Fan Control reader only when primary sensors do not provide CPU and GPU fan RPM, and query NVIDIA SMI only for GPU values missing from Afterburner.
 
 ## 1.3.53 — 2026-11-10
 

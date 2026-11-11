@@ -2,6 +2,7 @@ const { app, BrowserWindow, ipcMain, screen, Tray, Menu, nativeImage, safeStorag
 const { spawn } = require('node:child_process');
 const path = require('node:path');
 const os = require('node:os');
+const fsSync = require('node:fs');
 const fs = require('node:fs/promises');
 const https = require('node:https');
 const http = require('node:http');
@@ -28,6 +29,9 @@ const allowedPollingIntervals = new Set([1000, 2000, 3000, 5000, 10000]);
 let fanControlCollector;
 let fanControlCollectorRestartDelayMs = 5000;
 let fanControlCollectorRestartTimer;
+let fanControlCollectorWanted = false;
+let fanControlReaderPathResolved = false;
+let fanControlReaderPath = null;
 let latestFanControlSensors = [];
 let latestFanControlSignature = '[]';
 let cachedOwnProcessIds;
@@ -494,8 +498,49 @@ function fanNameKey(name) {
   return typeof name === 'string' ? name.trim().replace(/\s+/g, ' ').toLowerCase() : '';
 }
 
+function needsFanControlFallback(payload) {
+  const fans = Array.isArray(payload?.fans) ? payload.fans : [];
+  const hasCpuFanRpm = fans.some((fan) => /CPU.*fan|fan.*CPU/i.test(fanNameKey(fan.name)) && /rpm/i.test(fan.units || ''));
+  const hasGpuFanRpm = Number.isFinite(payload?.gpu?.fanRPM)
+    || fans.some((fan) => /gpu|nvidia/i.test(fanNameKey(fan.name)) && /rpm/i.test(fan.units || ''));
+  return !hasCpuFanRpm || !hasGpuFanRpm;
+}
+
+function resolveFanControlReaderPath() {
+  if (fanControlReaderPathResolved) return fanControlReaderPath;
+  fanControlReaderPathResolved = true;
+  if (process.platform !== 'win32') return null;
+
+  const installRoots = [
+    process.env.ProgramFiles,
+    process.env['ProgramFiles(x86)'],
+    process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, 'Programs') : null,
+  ].filter(Boolean);
+  const isFanControlInstalled = installRoots.some((root) => fsSync.existsSync(path.join(root, 'FanControl', 'FanControl.IPC.dll')));
+  if (!isFanControlInstalled) return null;
+
+  const candidate = app.isPackaged
+    ? path.join(process.resourcesPath, 'FanControlReader.exe')
+    : path.join(__dirname, 'FanControlReader.exe');
+  fanControlReaderPath = fsSync.existsSync(candidate) ? candidate : null;
+  return fanControlReaderPath;
+}
+
 function sendHardwareStats(payload) {
   latestHardwarePayload = payload;
+  const wantsFanControlFallback = needsFanControlFallback(payload);
+  if (fanControlCollectorWanted !== wantsFanControlFallback) {
+    fanControlCollectorWanted = wantsFanControlFallback;
+    if (!fanControlCollectorWanted) {
+      if (fanControlCollectorRestartTimer) clearTimeout(fanControlCollectorRestartTimer);
+      fanControlCollectorRestartTimer = null;
+      if (fanControlCollector && !fanControlCollector.killed) fanControlCollector.kill();
+      latestFanControlSensors = [];
+      latestFanControlSignature = '[]';
+    }
+  }
+  if (fanControlCollectorWanted && !fanControlCollector && !fanControlCollectorRestartTimer) startFanControlCollector();
+
   const preferredFans = Array.isArray(payload.fans) ? payload.fans : [];
   const preferredFanNames = new Set(preferredFans.map((fan) => fanNameKey(fan.name)));
   // Fan Control is a last-resort source: keep Windows/BIOS or Afterburner
@@ -535,15 +580,13 @@ function restartHardwareCollector(delay = 250) {
 }
 
 function startFanControlCollector() {
-  if (process.platform !== 'win32' || isQuitting || fanControlCollector) return;
+  if (process.platform !== 'win32' || isQuitting || !fanControlCollectorWanted || fanControlCollector) return;
   if (fanControlCollectorRestartTimer) {
     clearTimeout(fanControlCollectorRestartTimer);
     fanControlCollectorRestartTimer = null;
   }
-  const readerPath = app.isPackaged
-    ? path.join(process.resourcesPath, 'FanControlReader.exe')
-    : path.join(__dirname, 'FanControlReader.exe');
-  if (!require('node:fs').existsSync(readerPath)) return;
+  const readerPath = resolveFanControlReaderPath();
+  if (!readerPath) return;
   const collector = spawn(readerPath, [String(hardwarePollingIntervalMs)], {
     windowsHide: true,
     stdio: ['ignore', 'pipe', 'ignore'],
@@ -569,7 +612,7 @@ function startFanControlCollector() {
     if (fanControlCollector !== collector) return;
     fanControlCollector = null;
     if (latestFanControlSensors.length) updateFanControlSensors([]);
-    if (!isQuitting && !fanControlCollectorRestartTimer) {
+    if (!isQuitting && fanControlCollectorWanted && !fanControlCollector && !fanControlCollectorRestartTimer) {
       const delay = fanControlCollectorRestartDelayMs;
       fanControlCollectorRestartDelayMs = 5000;
       fanControlCollectorRestartTimer = setTimeout(() => {
@@ -866,7 +909,7 @@ function startForegroundMonitor() {
   const readerPath = app.isPackaged
     ? path.join(process.resourcesPath, 'ForegroundMonitor.exe')
     : path.join(__dirname, 'ForegroundMonitor.exe');
-  if (!require('node:fs').existsSync(readerPath)) return;
+  if (!fsSync.existsSync(readerPath)) return;
   foregroundMonitor = spawn(readerPath, ['1000'], {
     windowsHide: true,
     stdio: ['ignore', 'pipe', 'ignore'],
@@ -931,10 +974,6 @@ function createWindow() {
     frame: false,
     resizable: false,
     movable: false,
-    // Win+D / the taskbar's Show desktop button minimizes eligible windows.
-    // This widget is the desktop layer, so remove WS_MINIMIZEBOX and let it
-    // remain visible while ordinary app windows are minimized above it.
-    minimizable: false,
     title: 'MonitorStats Widget',
     icon: path.join(__dirname, '..', 'assets', 'monitorstats.ico'),
     backgroundColor: '#06070a',
@@ -976,7 +1015,7 @@ function startHardwareCollector() {
   const scriptPath = app.isPackaged
     ? path.join(process.resourcesPath, 'telemetry.ps1')
     : path.join(__dirname, 'telemetry.ps1');
-  if (!require('node:fs').existsSync(scriptPath)) {
+  if (!fsSync.existsSync(scriptPath)) {
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('monitorstats:hardware-error');
     return;
   }
@@ -1059,8 +1098,6 @@ ipcMain.on('monitorstats:set-polling-interval', (_event, intervalMs) => {
   if (fanControlCollector && !fanControlCollector.killed) {
     fanControlCollectorRestartDelayMs = 250;
     fanControlCollector.kill();
-  } else if (!fanControlCollector) {
-    startFanControlCollector();
   }
 });
 
@@ -1117,7 +1154,6 @@ app.whenReady().then(async () => {
   createTray();
   startForegroundMonitor();
   startHardwareCollector();
-  startFanControlCollector();
   refreshPublicNetwork();
   refreshDnsResolver();
   refreshOntOpticalPower();

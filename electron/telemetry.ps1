@@ -366,26 +366,6 @@ do {
     vramLoadPercent = $null; tempC = $null; fanPercent = $null; fanRPM = $null; watt = $null
     vramUsedGB = $null; vramTotalGB = $null
   }
-  if ($nvidiaSmi -and $gpuName -match 'NVIDIA' -and ([DateTime]::Now - $script:nvidiaSmiLastRead).TotalSeconds -ge 10) {
-    $script:nvidiaSmiLastRead = [DateTime]::Now
-    $smiLine = & $nvidiaSmi '--query-gpu=name,temperature.gpu,utilization.gpu,memory.used,memory.total,clocks.gr,clocks.mem,power.draw,fan.speed' '--format=csv,noheader,nounits' 2>$null | Select-Object -First 1
-    if ($smiLine) { $script:nvidiaSmiData = @($smiLine -split ',\s*') }
-  }
-  if ($script:nvidiaSmiData -and $script:nvidiaSmiData.Count -ge 9) {
-    $smi = $script:nvidiaSmiData
-    if ($smi[0]) { $gpu.model = $smi[0].Trim() }
-    $gpu.tempC = Convert-Number $smi[1]
-    $gpu.coreLoadPercent = Convert-Number $smi[2]
-    $usedMB = Convert-Number $smi[3]
-    $totalMB = Convert-Number $smi[4]
-    $gpu.coreMHz = Convert-Number $smi[5]
-    $gpu.vramMHz = Convert-Number $smi[6]
-    $gpu.watt = Convert-Number $smi[7]
-    $gpu.fanPercent = Convert-Number $smi[8]
-    if ($null -ne $usedMB) { $gpu.vramUsedGB = Round-Value ($usedMB / 1024) 2 }
-    if ($null -ne $totalMB -and $totalMB -gt 0) { $gpu.vramTotalGB = Round-Value ($totalMB / 1024) 2 }
-    if ($null -ne $usedMB -and $null -ne $totalMB -and $totalMB -gt 0) { $gpu.vramLoadPercent = Round-Value (100 * $usedMB / $totalMB) 1 }
-  }
   if ($gpuSensorData.Count -gt 0) {
     $gpuUsageSensor = $gpuSensorData | Where-Object { $_.Name -match '^GPU1 usage$' } | Select-Object -First 1
     if (-not $gpuUsageSensor) { $gpuUsageSensor = $gpuSensorData | Where-Object { $_.Name -match '^GPU\d* usage$' } | Select-Object -First 1 }
@@ -409,6 +389,29 @@ do {
     if ($gpuFanSensor) { $gpu.fanPercent = $gpuFanSensor.Value }
     if ($gpuFanRpmSensor) { $gpu.fanRPM = $gpuFanRpmSensor.Value }
     if ($gpuPowerSensor) { $gpu.watt = $gpuPowerSensor.Value }
+  }
+  # Afterburner is the primary GPU source. Avoid starting nvidia-smi when its
+  # readings already cover the displayed metrics; use it only for missing data.
+  $needsNvidiaSmi = $null -eq $gpu.tempC -or $null -eq $gpu.coreLoadPercent -or $null -eq $gpu.vramUsedGB -or $null -eq $gpu.coreMHz -or $null -eq $gpu.vramMHz -or $null -eq $gpu.watt -or $null -eq $gpu.fanPercent -or ($null -eq $gpu.vramTotalGB -and $null -eq $script:nvidiaSmiData)
+  if ($needsNvidiaSmi -and $nvidiaSmi -and $gpuName -match 'NVIDIA' -and ([DateTime]::Now - $script:nvidiaSmiLastRead).TotalSeconds -ge 10) {
+    $script:nvidiaSmiLastRead = [DateTime]::Now
+    $smiLine = & $nvidiaSmi '--query-gpu=name,temperature.gpu,utilization.gpu,memory.used,memory.total,clocks.gr,clocks.mem,power.draw,fan.speed' '--format=csv,noheader,nounits' 2>$null | Select-Object -First 1
+    if ($smiLine) { $script:nvidiaSmiData = @($smiLine -split ',\s*') }
+  }
+  if ($script:nvidiaSmiData -and $script:nvidiaSmiData.Count -ge 9) {
+    $smi = $script:nvidiaSmiData
+    if ($smi[0]) { $gpu.model = $smi[0].Trim() }
+    $usedMB = Convert-Number $smi[3]
+    $totalMB = Convert-Number $smi[4]
+    if ($null -eq $gpu.tempC) { $gpu.tempC = Convert-Number $smi[1] }
+    if ($null -eq $gpu.coreLoadPercent) { $gpu.coreLoadPercent = Convert-Number $smi[2] }
+    if ($null -eq $gpu.coreMHz) { $gpu.coreMHz = Convert-Number $smi[5] }
+    if ($null -eq $gpu.vramMHz) { $gpu.vramMHz = Convert-Number $smi[6] }
+    if ($null -eq $gpu.watt) { $gpu.watt = Convert-Number $smi[7] }
+    if ($null -eq $gpu.fanPercent) { $gpu.fanPercent = Convert-Number $smi[8] }
+    if ($null -eq $gpu.vramUsedGB -and $null -ne $usedMB) { $gpu.vramUsedGB = Round-Value ($usedMB / 1024) 2 }
+    if ($null -eq $gpu.vramTotalGB -and $null -ne $totalMB -and $totalMB -gt 0) { $gpu.vramTotalGB = Round-Value ($totalMB / 1024) 2 }
+    if ($null -eq $gpu.vramLoadPercent -and $null -ne $usedMB -and $null -ne $totalMB -and $totalMB -gt 0) { $gpu.vramLoadPercent = Round-Value (100 * $usedMB / $totalMB) 1 }
   }
   # Query Windows' higher-overhead GPU counters only when neither the NVIDIA
   # driver nor Afterburner supplied GPU load.
