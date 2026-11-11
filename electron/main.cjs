@@ -931,6 +931,10 @@ function createWindow() {
     frame: false,
     resizable: false,
     movable: false,
+    // Win+D / the taskbar's Show desktop button minimizes eligible windows.
+    // This widget is the desktop layer, so remove WS_MINIMIZEBOX and let it
+    // remain visible while ordinary app windows are minimized above it.
+    minimizable: false,
     title: 'MonitorStats Widget',
     icon: path.join(__dirname, '..', 'assets', 'monitorstats.ico'),
     backgroundColor: '#06070a',

@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.3.55 — 2026-11-11
+
+- Keep the desktop widget visible when Windows runs Show desktop. Normal application windows can still appear above it, and the taskbar remains usable.
+
 ## 1.3.54 — 2026-11-10
 
 - Prefer the active default gateway for router identification and WAN-IP checks.
