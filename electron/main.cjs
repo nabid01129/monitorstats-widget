@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, screen, Tray, Menu, nativeImage, safeStorage } = require('electron');
+const { app, BrowserWindow, ipcMain, screen, Tray, Menu, nativeImage, safeStorage, shell } = require('electron');
 const { spawn } = require('node:child_process');
 const path = require('node:path');
 const os = require('node:os');
@@ -54,6 +54,9 @@ let publicLookupTimer;
 let publicLookupPending = false;
 let publicNetworkGeneration = 0;
 const publicLookupRequests = new Set();
+const updateCheckRequests = new Set();
+const GITHUB_RELEASES_LATEST_API = 'https://api.github.com/repos/nabid01129/monitorstats-widget/releases/latest';
+const GITHUB_RELEASES_LATEST_PAGE = 'https://github.com/nabid01129/monitorstats-widget/releases/latest';
 let dnsResolverLookupInFlight = false;
 let dnsResolverLookupPending = false;
 let dnsResolverRefreshTimer;
@@ -345,6 +348,71 @@ function queryIpInfo(address = null, family) {
       publicLookupRequests.delete(request);
       resolve(data);
     }
+  });
+}
+
+function compareVersionStrings(left, right) {
+  const leftParts = left.split('.').map(Number);
+  const rightParts = right.split('.').map(Number);
+  for (let index = 0; index < Math.max(leftParts.length, rightParts.length); index += 1) {
+    const difference = (leftParts[index] || 0) - (rightParts[index] || 0);
+    if (difference !== 0) return difference;
+  }
+  return 0;
+}
+
+function checkLatestRelease() {
+  const currentVersion = app.getVersion();
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      resolve({ currentVersion, ...result });
+    };
+    const request = https.get(GITHUB_RELEASES_LATEST_API, {
+      timeout: 7000,
+      headers: {
+        Accept: 'application/vnd.github+json',
+        'User-Agent': `MonitorStatsWidget/${currentVersion}`,
+      },
+    }, (response) => {
+      if (response.statusCode !== 200) {
+        response.resume();
+        finish({ status: 'unavailable', latestVersion: null });
+        return;
+      }
+      let body = '';
+      response.setEncoding('utf8');
+      response.on('data', (chunk) => {
+        body += chunk;
+        if (body.length > 128 * 1024) {
+          request.destroy();
+          finish({ status: 'unavailable', latestVersion: null });
+        }
+      });
+      response.on('end', () => {
+        if (settled) return;
+        try {
+          const release = JSON.parse(body);
+          const latestVersion = typeof release.tag_name === 'string' ? release.tag_name.replace(/^v/i, '') : '';
+          if (!/^\d+\.\d+\.\d+$/.test(latestVersion)) {
+            finish({ status: 'unavailable', latestVersion: null });
+            return;
+          }
+          finish({
+            status: compareVersionStrings(latestVersion, currentVersion) > 0 ? 'available' : 'current',
+            latestVersion,
+          });
+        } catch {
+          finish({ status: 'unavailable', latestVersion: null });
+        }
+      });
+    });
+    updateCheckRequests.add(request);
+    request.on('timeout', () => request.destroy(new Error('GitHub update check timed out')));
+    request.on('error', () => finish({ status: 'unavailable', latestVersion: null }));
+    request.on('close', () => updateCheckRequests.delete(request));
   });
 }
 
@@ -1111,6 +1179,9 @@ ipcMain.on('monitorstats:refresh-hardware', () => {
 });
 
 ipcMain.handle('monitorstats:get-displays', () => listDisplays());
+ipcMain.handle('monitorstats:get-app-version', () => app.getVersion());
+ipcMain.handle('monitorstats:check-for-updates', () => checkLatestRelease());
+ipcMain.handle('monitorstats:open-latest-release', () => shell.openExternal(GITHUB_RELEASES_LATEST_PAGE));
 ipcMain.handle('monitorstats:get-ont-config', async () => {
   await loadOntConfig();
   return {
@@ -1180,6 +1251,7 @@ app.on('before-quit', () => {
   if (fanControlCollectorRestartTimer) clearTimeout(fanControlCollectorRestartTimer);
   if (foregroundMonitorRestartTimer) clearTimeout(foregroundMonitorRestartTimer);
   for (const request of publicLookupRequests) request.destroy();
+  for (const request of updateCheckRequests) request.destroy();
   if (hardwareCollectorRestartTimer) clearTimeout(hardwareCollectorRestartTimer);
   if (hardwareRefreshTimeout) clearTimeout(hardwareRefreshTimeout);
   if (foregroundMonitor && !foregroundMonitor.killed) foregroundMonitor.kill();

@@ -1,9 +1,21 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { DisplaySettings, GameTelemetry, HardwareStats, MonitorInfo } from './types/stats';
+import { DisplaySettings, GameTelemetry, HardwareStats, MonitorInfo, UpdateCheckInfo } from './types/stats';
 import { DEFAULT_DISPLAY_SETTINGS, THEME_OPTIONS } from './utils/defaultSpecs';
 import { StatsView } from './components/StatsView';
 import { ControlToolbar } from './components/ControlToolbar';
 import { SidebarSettingsWindow } from './components/SidebarSettingsWindow';
+
+const OLED_PROTECTION_OFFSETS = [
+  { x: 0, y: 0 },
+  { x: 2, y: 0 },
+  { x: 2, y: 2 },
+  { x: 0, y: 2 },
+  { x: -2, y: 2 },
+  { x: -2, y: 0 },
+  { x: -2, y: -2 },
+  { x: 0, y: -2 },
+  { x: 2, y: -2 },
+];
 
 interface ShellBridge {
   setRunAtStartup: (enabled: boolean) => void;
@@ -12,6 +24,9 @@ interface ShellBridge {
   refreshHardware: () => void;
   setWidgetLayout: (layout: Pick<DisplaySettings, 'displayId' | 'fillDisplay' | 'displayPosition' | 'widthPercent' | 'heightPercent' | 'autoScale' | 'scalePercent'>) => void;
   getDisplays: () => Promise<MonitorInfo[]>;
+  getAppVersion: () => Promise<string>;
+  checkForUpdates: () => Promise<UpdateCheckInfo>;
+  openLatestRelease: () => Promise<void>;
   getOntConfig: () => Promise<{ endpoint: string; username: string; configured: boolean }>;
   saveOntConfig: (config: { endpoint: string; username: string; password: string }) => Promise<{ configured: boolean }>;
   onDisplays: (callback: (displays: MonitorInfo[]) => void) => () => void;
@@ -47,6 +62,8 @@ function loadSettings(): DisplaySettings {
       heightPercent: Math.max(40, Math.min(100, stored.heightPercent ?? 75)),
       autoScale: stored.autoScale ?? DEFAULT_DISPLAY_SETTINGS.autoScale,
       scalePercent: Math.max(70, Math.min(130, stored.scalePercent ?? 100)),
+      oledShiftIntervalMs: [180000, 300000, 600000].includes(stored.oledShiftIntervalMs ?? 300000)
+        ? stored.oledShiftIntervalMs ?? 300000 : DEFAULT_DISPLAY_SETTINGS.oledShiftIntervalMs,
     };
   } catch {
     return DEFAULT_DISPLAY_SETTINGS;
@@ -59,10 +76,18 @@ export default function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [displays, setDisplays] = useState<MonitorInfo[]>([]);
+  const [oledShiftIndex, setOledShiftIndex] = useState(0);
+  const [appVersion, setAppVersion] = useState('');
+  const [updateInfo, setUpdateInfo] = useState<UpdateCheckInfo | null>(null);
 
   useEffect(() => {
     const shell = window.monitorStatsShell;
     if (!shell) return;
+    let active = true;
+    shell.getAppVersion().then((version) => { if (active) setAppVersion(version); }).catch(() => {});
+    shell.checkForUpdates().then((info) => { if (active) setUpdateInfo(info); }).catch(() => {
+      if (active) setUpdateInfo({ currentVersion: '', latestVersion: null, status: 'unavailable' });
+    });
     const stopStats = shell.onHardwareStats(setStats);
     const stopError = shell.onHardwareError(() => {
       setStats((current) => current ? { ...current, status: 'unavailable' } : null);
@@ -70,7 +95,7 @@ export default function App() {
     const stopRefresh = shell.onRefreshState(setIsRefreshing);
     const stopDisplays = shell.onDisplays(setDisplays);
     shell.getDisplays().then(setDisplays).catch(() => setDisplays([]));
-    return () => { stopStats(); stopError(); stopRefresh(); stopDisplays(); };
+    return () => { active = false; stopStats(); stopError(); stopRefresh(); stopDisplays(); };
   }, []);
 
   useEffect(() => {
@@ -92,6 +117,13 @@ export default function App() {
       autoScale: settings.autoScale, scalePercent: settings.scalePercent,
     });
   }, [settings.displayId, settings.fillDisplay, settings.displayPosition, settings.widthPercent, settings.heightPercent, settings.autoScale, settings.scalePercent]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setOledShiftIndex((index) => (index + 1) % OLED_PROTECTION_OFFSETS.length);
+    }, settings.oledShiftIntervalMs);
+    return () => window.clearInterval(timer);
+  }, [settings.oledShiftIntervalMs]);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -132,19 +164,29 @@ export default function App() {
     });
   }, []);
 
+  const oledOffset = OLED_PROTECTION_OFFSETS[oledShiftIndex];
+  const openLatestRelease = useCallback(() => {
+    window.monitorStatsShell?.openLatestRelease().catch(() => {});
+  }, []);
+
   return (
     <div className="theme-shell relative h-screen overflow-hidden text-white font-sans" data-theme={settings.theme}>
-      <ControlToolbar
-        onOpenSettings={() => setIsSettingsOpen(true)}
-        onRefresh={() => window.monitorStatsShell?.refreshHardware()}
-        isRefreshing={isRefreshing}
-      />
-      <main className="h-full w-full overflow-hidden p-3">
-        <StatsView
-          stats={stats}
-          settings={settings}
+      <div className="relative h-full w-full" style={{ left: oledOffset.x, top: oledOffset.y }}>
+        <ControlToolbar
+          onOpenSettings={() => setIsSettingsOpen(true)}
+          onRefresh={() => window.monitorStatsShell?.refreshHardware()}
+          isRefreshing={isRefreshing}
+          updateAvailable={updateInfo?.status === 'available'}
+          latestVersion={updateInfo?.latestVersion || null}
+          onOpenLatestRelease={openLatestRelease}
         />
-      </main>
+        <main className="h-full w-full overflow-hidden p-3">
+          <StatsView
+            stats={stats}
+            settings={settings}
+          />
+        </main>
+      </div>
       <SidebarSettingsWindow
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
@@ -153,6 +195,9 @@ export default function App() {
         displays={displays}
         onSaveSettings={saveSettings}
         shell={window.monitorStatsShell}
+        appVersion={appVersion}
+        updateInfo={updateInfo}
+        onOpenLatestRelease={openLatestRelease}
       />
     </div>
   );

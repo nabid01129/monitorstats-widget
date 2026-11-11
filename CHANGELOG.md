@@ -1,10 +1,26 @@
 # Changelog
 
+Cumulative history starts with the first public release, v1.3.37, and includes the available notes for later builds. Pre-1.3.37 local builds have no preserved per-version notes.
+
+## 1.3.58 — 2026-11-11
+
+- Show the installed app version in Settings and add a GitHub releases shortcut for manual update checks.
+- Check GitHub’s latest stable release once on app launch and show an update button in the toolbar when a newer version exists.
+- Keep update checking lightweight with one bounded HTTPS request and a short timeout.
+
+## 1.3.57 — 2026-11-11
+
+- Add a low-overhead 2 px OLED burn-in protection shift for the dashboard and toolbar across every theme, adjustable to 3, 5, or 10 minutes.
+
 ## 1.3.56 — 2026-11-11
 
 - Restored the 1.3.54 desktop behavior selected as the stable baseline.
 - Start the Fan Control reader only when primary sensors do not provide CPU or GPU fan RPM, and stop it when those readings become available.
 - Query NVIDIA SMI only to fill GPU values that Afterburner does not provide.
+
+## 1.3.55 — 2026-11-11
+
+- Keep the desktop widget visible when Windows runs Show desktop; ordinary application windows can still appear above it, and the taskbar remains usable.
 
 ## 1.3.54 — 2026-11-10
 
@@ -63,6 +79,14 @@ Changes since 1.3.37:
 - Made the IPv6 address easier to read by using the full Network panel width and a smaller font.
 - Removed the extra System source, frame-graph, and Top 5 RAM captions to reduce visual clutter.
 - Prevented duplicate app instances and disabled the unused Chromium breakpad handler process to trim background process overhead.
+
+## 1.3.43–1.3.45
+
+- Separate change notes for these intermediate builds were not preserved.
+
+## 1.3.37 — 2026-11-09
+
+- First public Windows installer release. The original release record did not contain detailed per-feature notes; v1.3.42 records the accumulated changes since this baseline.
 
 ## Privacy and setup
 

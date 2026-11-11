@@ -116,6 +116,12 @@ export interface GameTelemetry {
   at?: number;
 }
 
+export interface UpdateCheckInfo {
+  currentVersion: string;
+  latestVersion: string | null;
+  status: 'available' | 'current' | 'unavailable';
+}
+
 export interface HardwareStats {
   clock: ClockData;
   cpu: CpuData;
@@ -146,4 +152,5 @@ export interface DisplaySettings {
   heightPercent: number;
   autoScale: boolean;
   scalePercent: number;
+  oledShiftIntervalMs: number;
 }

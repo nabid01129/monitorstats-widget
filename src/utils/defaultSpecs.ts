@@ -38,4 +38,5 @@ export const DEFAULT_DISPLAY_SETTINGS: DisplaySettings = {
   heightPercent: 75,
   autoScale: true,
   scalePercent: 100,
+  oledShiftIntervalMs: 300000,
 };

@@ -4,10 +4,20 @@ interface Props {
   onOpenSettings: () => void;
   onRefresh: () => void;
   isRefreshing: boolean;
+  updateAvailable: boolean;
+  latestVersion: string | null;
+  onOpenLatestRelease: () => void;
 }
 
-export const ControlToolbar: React.FC<Props> = ({ onOpenSettings, onRefresh, isRefreshing }) => (
-  <div className="fixed right-3 top-3 z-40 flex gap-1 opacity-35 transition-opacity hover:opacity-100 focus-within:opacity-100">
+export const ControlToolbar: React.FC<Props> = ({ onOpenSettings, onRefresh, isRefreshing, updateAvailable, latestVersion, onOpenLatestRelease }) => (
+  <div className={`absolute right-3 top-3 z-40 flex gap-1 transition-opacity hover:opacity-100 focus-within:opacity-100 ${updateAvailable ? 'opacity-100' : 'opacity-35'}`}>
+    {updateAvailable && <button
+      type="button"
+      onClick={onOpenLatestRelease}
+      className="rounded border border-cyan-700 bg-slate-950/90 px-2 py-2 text-xs font-semibold text-cyan-300 hover:bg-slate-800"
+      title={`Version ${latestVersion} is available on GitHub`}
+      aria-label={`Version ${latestVersion} is available. Open the GitHub release page`}
+    >Update · v{latestVersion}</button>}
     <button
       type="button"
       onClick={onRefresh}

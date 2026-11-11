@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { DisplaySettings, HardwareStats, MonitorInfo } from '../types/stats';
+import { DisplaySettings, HardwareStats, MonitorInfo, UpdateCheckInfo } from '../types/stats';
 import { THEME_OPTIONS } from '../utils/defaultSpecs';
 
 interface Props {
@@ -9,13 +9,16 @@ interface Props {
   stats: HardwareStats | null;
   displays: MonitorInfo[];
   onSaveSettings: (settings: DisplaySettings) => void;
+  appVersion: string;
+  updateInfo: UpdateCheckInfo | null;
+  onOpenLatestRelease: () => void;
   shell?: {
     getOntConfig: () => Promise<{ endpoint: string; username: string; configured: boolean }>;
     saveOntConfig: (config: { endpoint: string; username: string; password: string }) => Promise<{ configured: boolean }>;
   };
 }
 
-export const SidebarSettingsWindow: React.FC<Props> = ({ isOpen, onClose, settings, stats, displays, onSaveSettings, shell }) => {
+export const SidebarSettingsWindow: React.FC<Props> = ({ isOpen, onClose, settings, stats, displays, onSaveSettings, appVersion, updateInfo, onOpenLatestRelease, shell }) => {
   const [draft, setDraft] = useState(settings);
   const [ontDraft, setOntDraft] = useState({ endpoint: '', username: '', password: '', configured: false });
   const [ontMessage, setOntMessage] = useState('');
@@ -46,6 +49,23 @@ export const SidebarSettingsWindow: React.FC<Props> = ({ isOpen, onClose, settin
         </header>
 
         <div className="space-y-2 text-sm">
+          <div className="rounded border border-slate-700 bg-slate-950 p-3" aria-live="polite">
+            <div className="flex items-center justify-between gap-2">
+              <strong>Current version</strong><span className="font-mono text-cyan-300">{appVersion ? `v${appVersion}` : 'Loading…'}</span>
+            </div>
+            <p className="mt-1 text-xs text-slate-400">
+              {!updateInfo ? 'Checking GitHub for updates…' : updateInfo.status === 'available'
+                ? `Version ${updateInfo.latestVersion} is available.`
+                : updateInfo.status === 'unavailable'
+                  ? 'Automatic update check could not reach GitHub.'
+                  : updateInfo.latestVersion && updateInfo.latestVersion !== updateInfo.currentVersion
+                    ? `Latest GitHub release: v${updateInfo.latestVersion}.`
+                    : 'You are using the latest GitHub release.'}
+            </p>
+            <button type="button" className="mt-2 rounded border border-cyan-700 px-2 py-1 text-xs text-cyan-200 hover:bg-slate-800" onClick={onOpenLatestRelease}>
+              Check for updates on GitHub
+            </button>
+          </div>
           <label className="block rounded border border-slate-700 bg-slate-950 p-3 text-xs text-slate-400">Color theme
             <select className="mt-1 w-full rounded border border-slate-700 bg-slate-900 px-2 py-2 text-sm text-white" value={draft.theme} onChange={(event) => setDraft({ ...draft, theme: event.target.value as DisplaySettings['theme'] })}>
               <option value="classic">Classic · original cyan</option>
@@ -58,6 +78,12 @@ export const SidebarSettingsWindow: React.FC<Props> = ({ isOpen, onClose, settin
               ))}
             </select>
             <small className="mt-1 block">Static styles only; no animation, blur, or extra polling. OLED Black is pure black.</small>
+          </label>
+          <label className={rowClass}>
+            <span><strong className="block">OLED burn-in protection</strong><small className="text-slate-400">Shift the dashboard by 2 px; applies to every theme.</small></span>
+            <select className="rounded border border-slate-700 bg-slate-900 px-2 py-1 text-sm text-white" value={draft.oledShiftIntervalMs} onChange={(event) => setDraft({ ...draft, oledShiftIntervalMs: Number(event.target.value) })}>
+              <option value={180000}>Every 3 minutes</option><option value={300000}>Every 5 minutes</option><option value={600000}>Every 10 minutes</option>
+            </select>
           </label>
           <div className="rounded border border-slate-700 bg-slate-950 p-3">
             <strong className="mb-2 block">Displays and layout</strong>

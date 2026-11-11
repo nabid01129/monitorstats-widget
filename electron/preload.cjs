@@ -7,6 +7,9 @@ contextBridge.exposeInMainWorld('monitorStatsShell', {
   refreshHardware: () => ipcRenderer.send('monitorstats:refresh-hardware'),
   setWidgetLayout: (layout) => ipcRenderer.send('monitorstats:set-widget-layout', layout),
   getDisplays: () => ipcRenderer.invoke('monitorstats:get-displays'),
+  getAppVersion: () => ipcRenderer.invoke('monitorstats:get-app-version'),
+  checkForUpdates: () => ipcRenderer.invoke('monitorstats:check-for-updates'),
+  openLatestRelease: () => ipcRenderer.invoke('monitorstats:open-latest-release'),
   getOntConfig: () => ipcRenderer.invoke('monitorstats:get-ont-config'),
   saveOntConfig: (config) => ipcRenderer.invoke('monitorstats:save-ont-config', config),
   onDisplays: (callback) => {
