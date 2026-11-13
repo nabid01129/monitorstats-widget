@@ -4,6 +4,12 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing version tag to build and publish (for retrying a release)
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -39,14 +45,30 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           $version = (Get-Content 'package.json' -Raw | ConvertFrom-Json).version
-          if ($env:GITHUB_REF_NAME -ne "v$version") { throw "Tag $env:GITHUB_REF_NAME does not match package version $version." }
-          $installer = Get-Item 'release-installer/MonitorStats-Setup-*.exe'
-          if (-not $installer) { throw 'Installer artifact was not generated.' }
+          $tag = $env:RELEASE_TAG.Trim()
+          if ($tag -ne "v$version") { throw "Tag $tag does not match package version $version." }
+          $installers = @(Get-ChildItem -File 'release-installer/MonitorStats-Setup-*.exe')
+          if ($installers.Count -ne 1) { throw "Expected one installer artifact; found $($installers.Count)." }
+          $installer = $installers[0]
           $hash = (Get-FileHash $installer.FullName -Algorithm SHA256).Hash
           $changelog = Get-Content 'CHANGELOG.md' -Raw
           $section = [regex]::Match($changelog, "(?ms)^##\s+$([regex]::Escape($version))\b.*?(?=^##\s+|\z)")
           if (-not $section.Success) { throw "No CHANGELOG.md section found for version $version." }
           $notes = "$($section.Value.Trim())`n`nSHA-256: $hash"
-          gh release create $env:GITHUB_REF_NAME $installer.FullName --title "MonitorStats $env:GITHUB_REF_NAME" --notes $notes
+          $releaseTitle = "MonitorStats $tag"
+
+          # A release may have been created manually before this workflow runs.
+          # Update its installer and notes instead of failing on the duplicate tag.
+          gh release view $tag --json tagName *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $tag $installer.FullName --clobber
+            if ($LASTEXITCODE -ne 0) { throw "Could not upload installer to existing release $tag." }
+            gh release edit $tag --title $releaseTitle --notes $notes
+            if ($LASTEXITCODE -ne 0) { throw "Could not update notes for existing release $tag." }
+          } else {
+            gh release create $tag $installer.FullName --title $releaseTitle --notes $notes
+            if ($LASTEXITCODE -ne 0) { throw "Could not create GitHub release $tag." }
+          }
