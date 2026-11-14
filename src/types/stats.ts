@@ -43,6 +43,7 @@ export interface GpuData {
 
 export interface DriveData {
   id: string;
+  deviceId: string;
   name: string;
   type: string;
   letter: string;
@@ -97,13 +98,29 @@ export interface FanData {
   units: string;
 }
 
+export interface MotherboardData {
+  manufacturer: string | null;
+  model: string | null;
+  product: string | null;
+}
+
+export interface PeripheralData {
+  id: string;
+  name: string;
+  manufacturer: string | null;
+  category: string;
+  quantity: number;
+}
+
 export interface MonitorInfo {
   id: string;
   fpsIndex: number;
   label: string;
+  model: string | null;
   primary: boolean;
   width: number;
   height: number;
+  refreshRate: number | null;
   orientation: 'Landscape' | 'Portrait' | 'Square';
 }
 
@@ -122,11 +139,23 @@ export interface UpdateCheckInfo {
   status: 'available' | 'current' | 'unavailable';
 }
 
+export interface WindowsBuildInfo {
+  name: string;
+  version: string | null;
+  build: string;
+}
+
 export interface HardwareStats {
   clock: ClockData;
   cpu: CpuData;
   ram: RamData;
   gpu: GpuData;
+  systemPowerW: number | null;
+  systemPowerSource: string | null;
+  systemPowerKind: 'pc-output' | 'pc-input' | 'whole-system' | null;
+  motherboard: MotherboardData;
+  peripherals: PeripheralData[];
+  peripheralCount: number;
   drives: DriveData[];
   fans: FanData[];
   network: NetworkData;

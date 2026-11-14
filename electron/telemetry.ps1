@@ -134,6 +134,63 @@ $processors = Get-SafeCim 'Win32_Processor'
 $processor = $processors | Select-Object -First 1
 $memoryModules = Get-SafeCim 'Win32_PhysicalMemory'
 $videoControllers = Get-SafeCim 'Win32_VideoController'
+$baseboard = Get-SafeCim 'Win32_BaseBoard' | Select-Object -First 1
+$cleanHardwareText = {
+  param($Value)
+  $text = ([string]$Value).Trim()
+  if (-not $text -or $text -match '(?i)to be filled|default string|system product name|not applicable|unknown') { return $null }
+  return $text
+}
+$motherboard = @{
+  manufacturer = & $cleanHardwareText $(if ($baseboard) { $baseboard.Manufacturer })
+  model = & $cleanHardwareText $(if ($baseboard) { $baseboard.Model })
+  product = & $cleanHardwareText $(if ($baseboard) { $baseboard.Product })
+}
+function Update-PeripheralInventory {
+  try {
+    $peripheralSource = Get-SafeCim 'Win32_PnPEntity'
+    $peripheralCandidates = @($peripheralSource | Where-Object {
+      $_.PNPDeviceID -match '^(USB|HID)\\' -and $_.Status -eq 'OK' -and [int]$_.ConfigManagerErrorCode -eq 0 -and
+      $_.Name -and $_.Name -notmatch '(?i)root hub|generic hub|host controller|composite device|input device$|extension host|debug port|billboard device|mass storage'
+    } | ForEach-Object {
+      $deviceName = [string]$_.Name
+      $className = [string]$_.PNPClass
+      $searchText = "$deviceName $className"
+      $category = if ($searchText -match '(?i)keyboard') { 'Keyboard' }
+        elseif ($searchText -match '(?i)mouse|pointing device|touchpad') { 'Mouse' }
+        elseif ($searchText -match '(?i)webcam|camera|imaging|video device') { 'Camera' }
+        elseif ($searchText -match '(?i)headset|headphone|microphone|audio|sound') { 'USB audio' }
+        elseif ($searchText -match '(?i)game.?pad|controller|joystick|game controller') { 'Controller' }
+        elseif ($searchText -match '(?i)phone|android|iphone|portable device') { 'Phone / portable device' }
+        elseif ($searchText -match '(?i)bluetooth|wireless receiver|receiver|wireless adapter|network adapter') { 'Wireless adapter' }
+        elseif ($searchText -match '(?i)printer|scanner') { 'Printer / scanner' }
+        else { 'Other USB device' }
+      [pscustomobject]@{
+        Name = $deviceName.Trim()
+        Manufacturer = & $cleanHardwareText $_.Manufacturer
+        Category = $category
+      }
+    })
+    $peripheralGroups = @($peripheralCandidates | Group-Object { "$($_.Category)|$($_.Manufacturer)|$($_.Name)" } | ForEach-Object {
+      $device = $_.Group[0]
+      [pscustomobject]@{ Name = $device.Name; Manufacturer = $device.Manufacturer; Category = $device.Category; Quantity = $_.Count }
+    } | Sort-Object Category, Name)
+    $peripheralCount = ($peripheralGroups | Measure-Object -Property Quantity -Sum).Sum
+    if ($null -eq $peripheralCount) { $peripheralCount = 0 }
+    $script:peripheralCount = [int]$peripheralCount
+    $script:peripherals = @($peripheralGroups | Select-Object -First 32 | ForEach-Object {
+      @{ id = "$(if ($_.Manufacturer) { $_.Manufacturer + '|' })$($_.Category)|$($_.Name)"; name = $_.Name; manufacturer = $_.Manufacturer; category = $_.Category; quantity = [int]$_.Quantity }
+    })
+  } catch {
+    $script:peripherals = @()
+    $script:peripheralCount = 0
+  }
+  $script:lastPeripheralScan = [DateTime]::Now
+}
+$script:peripherals = @()
+$script:peripheralCount = 0
+$script:lastPeripheralScan = [DateTime]::MinValue
+Update-PeripheralInventory
 $memoryTypes = @{
   20 = 'DDR'; 21 = 'DDR2'; 22 = 'DDR2 FB-DIMM'; 24 = 'DDR3'; 26 = 'DDR4'
   27 = 'LPDDR'; 28 = 'LPDDR2'; 29 = 'LPDDR3'; 30 = 'LPDDR4'; 32 = 'HBM'; 33 = 'HBM2'
@@ -280,11 +337,33 @@ function Update-StorageInventory {
   $script:partitions = @(Get-Partition | Where-Object { $_.DriveLetter })
   $script:wmiDisks = Get-SafeCim 'Win32_DiskDrive'
   $script:volumes = Get-SafeCim 'Win32_LogicalDisk' 'DriveType=3'
+  # Build lookup tables once per inventory scan instead of re-running PowerShell
+  # pipelines for every volume on every telemetry sample.
+  $script:partitionByLetter = @{}
+  foreach ($partition in $script:partitions) {
+    $letter = if ($partition.DriveLetter) { "$($partition.DriveLetter):" } else { $null }
+    if ($letter -and -not $script:partitionByLetter.ContainsKey($letter)) { $script:partitionByLetter[$letter] = $partition }
+  }
+  $script:diskByNumber = @{}
+  foreach ($disk in $script:storageDisks) {
+    $number = [int]$disk.Number
+    if (-not $script:diskByNumber.ContainsKey($number)) { $script:diskByNumber[$number] = $disk }
+  }
+  $script:physicalByDeviceId = @{}
+  foreach ($physical in $script:physicalDisks) {
+    $deviceId = [string]$physical.DeviceId
+    if (-not $script:physicalByDeviceId.ContainsKey($deviceId)) { $script:physicalByDeviceId[$deviceId] = $physical }
+  }
+  $script:wmiDiskByIndex = @{}
+  foreach ($wmiDisk in $script:wmiDisks) {
+    $index = [int]$wmiDisk.Index
+    if (-not $script:wmiDiskByIndex.ContainsKey($index)) { $script:wmiDiskByIndex[$index] = $wmiDisk }
+  }
   # Cache SMART reads with disk inventory; live counters continue at the selected polling rate.
   $script:smartByDisk = @{}
   foreach ($physicalDisk in $script:storageDisks) {
     $diskNumber = [int]$physicalDisk.Number
-    $physical = $script:physicalDisks | Where-Object { [string]$_.DeviceId -eq [string]$diskNumber } | Select-Object -First 1
+    $physical = $script:physicalByDeviceId[[string]$diskNumber]
     $busType = [string]$physicalDisk.BusType
     $script:smartByDisk[$diskNumber] = @{
       reliability = Get-ReliabilityCounter $physical
@@ -332,6 +411,9 @@ do {
   $cpuTempSensors = [Collections.Generic.List[object]]::new()
   $gpuSensorList = [Collections.Generic.List[object]]::new()
   $fanSensorList = [Collections.Generic.List[object]]::new()
+  $systemPowerSensor = $null
+  $firstGpuUsageSensor = $null
+  $preferredGpuUsageSensor = $null
   $afterburnerCpuLoad = $null; $afterburnerCpuClock = $null; $afterburnerCpuTemp = $null; $afterburnerCpuPower = $null
   foreach ($sensor in $mahmData) {
     $sensorName = [string]$sensor.Name
@@ -341,7 +423,14 @@ do {
     elseif ($sensorName -match '^CPU\d+ usage$') { $cpuUsageSensors.Add($sensor) }
     elseif ($sensorName -match '^CPU power$') { if (-not $afterburnerCpuPower) { $afterburnerCpuPower = $sensor } }
     elseif ($sensorName -match '^CPU\d+ temperature$') { $cpuTempSensors.Add($sensor) }
-    if ($sensorName -match '^GPU\d* ') { $gpuSensorList.Add($sensor) }
+    if (-not $systemPowerSensor -and $sensor.Units -match '^(W|watt|watts)$' -and $sensorName -match '^(?:whole system power|total\s+system power|system total power|total (?:pc|computer) power|(?:psu|power supply) (?:output )?power|ac input power|wall power)$' -and $sensor.Value -gt 0 -and $sensor.Value -lt 2000) { $systemPowerSensor = $sensor }
+    if ($sensorName -match '^GPU\d* ') {
+      $gpuSensorList.Add($sensor)
+      if ($sensorName -match '^GPU\d* usage$') {
+        if (-not $firstGpuUsageSensor) { $firstGpuUsageSensor = $sensor }
+        if (-not $preferredGpuUsageSensor -and $sensorName -match '^GPU1 usage$') { $preferredGpuUsageSensor = $sensor }
+      }
+    }
     if ($sensorName -match 'fan' -and $sensor.Units -match 'RPM|%') { $fanSensorList.Add($sensor) }
   }
   $afterburnerCores = @($cpuUsageSensors | Sort-Object { [int]([regex]::Match($_.Name, '^CPU(\d+)').Groups[1].Value) })
@@ -367,17 +456,23 @@ do {
     vramUsedGB = $null; vramTotalGB = $null
   }
   if ($gpuSensorData.Count -gt 0) {
-    $gpuUsageSensor = $gpuSensorData | Where-Object { $_.Name -match '^GPU1 usage$' } | Select-Object -First 1
-    if (-not $gpuUsageSensor) { $gpuUsageSensor = $gpuSensorData | Where-Object { $_.Name -match '^GPU\d* usage$' } | Select-Object -First 1 }
-    $gpuSensors = if ($gpuUsageSensor) { @($gpuSensorData | Where-Object { $_.Gpu -eq $gpuUsageSensor.Gpu }) } else { $gpuSensorData }
-    $gpuTempSensor = $gpuSensors | Where-Object { $_.Name -match '^GPU\d* temperature$' } | Select-Object -First 1
-    $gpuCoreClockSensor = $gpuSensors | Where-Object { $_.Name -match '^GPU\d* (core )?clock$' } | Select-Object -First 1
-    $gpuMemoryClockSensor = $gpuSensors | Where-Object { $_.Name -match '^GPU\d* memory clock$' } | Select-Object -First 1
-    $gpuMemorySensor = $gpuSensors | Where-Object { $_.Name -match '^GPU\d* memory usage$' } | Select-Object -First 1
-    $gpuFanSensor = $gpuSensors | Where-Object { $_.Name -match '^GPU\d* fan speed$' -and $_.Units -match '%' } | Select-Object -First 1
-    $gpuFanRpmSensor = $gpuSensors | Where-Object { $_.Name -match '^GPU\d* fan tachometer$' } | Select-Object -First 1
-    if (-not $gpuFanRpmSensor) { $gpuFanRpmSensor = $gpuSensorData | Where-Object { $_.Name -match '^GPU\d* fan tachometer$' } | Select-Object -First 1 }
-    $gpuPowerSensor = $gpuSensors | Where-Object { $_.Name -match '^GPU\d* power$' } | Select-Object -First 1
+    $gpuUsageSensor = if ($preferredGpuUsageSensor) { $preferredGpuUsageSensor } else { $firstGpuUsageSensor }
+    $selectedGpuIndex = if ($gpuUsageSensor) { $gpuUsageSensor.Gpu } else { $null }
+    $gpuTempSensor = $null; $gpuCoreClockSensor = $null; $gpuMemoryClockSensor = $null
+    $gpuMemorySensor = $null; $gpuFanSensor = $null; $gpuFanRpmSensor = $null
+    $gpuFanRpmAnySensor = $null; $gpuPowerSensor = $null
+    foreach ($sensor in $gpuSensorData) {
+      if ($sensor.Name -match '^GPU\d* fan tachometer$' -and -not $gpuFanRpmAnySensor) { $gpuFanRpmAnySensor = $sensor }
+      if ($null -ne $selectedGpuIndex -and $sensor.Gpu -ne $selectedGpuIndex) { continue }
+      if (-not $gpuTempSensor -and $sensor.Name -match '^GPU\d* temperature$') { $gpuTempSensor = $sensor }
+      elseif (-not $gpuCoreClockSensor -and $sensor.Name -match '^GPU\d* (core )?clock$') { $gpuCoreClockSensor = $sensor }
+      elseif (-not $gpuMemoryClockSensor -and $sensor.Name -match '^GPU\d* memory clock$') { $gpuMemoryClockSensor = $sensor }
+      elseif (-not $gpuMemorySensor -and $sensor.Name -match '^GPU\d* memory usage$') { $gpuMemorySensor = $sensor }
+      elseif (-not $gpuFanSensor -and $sensor.Name -match '^GPU\d* fan speed$' -and $sensor.Units -match '%') { $gpuFanSensor = $sensor }
+      elseif (-not $gpuFanRpmSensor -and $sensor.Name -match '^GPU\d* fan tachometer$') { $gpuFanRpmSensor = $sensor }
+      elseif (-not $gpuPowerSensor -and $sensor.Name -match '^GPU\d* power$') { $gpuPowerSensor = $sensor }
+    }
+    if (-not $gpuFanRpmSensor) { $gpuFanRpmSensor = $gpuFanRpmAnySensor }
     if ($gpuUsageSensor) { $gpu.coreLoadPercent = [Math]::Max(0, [Math]::Min(100, $gpuUsageSensor.Value)) }
     if ($gpuTempSensor) { $gpu.tempC = $gpuTempSensor.Value }
     if ($gpuCoreClockSensor) { $gpu.coreMHz = $gpuCoreClockSensor.Value }
@@ -425,11 +520,11 @@ do {
   $drives = @()
   foreach ($volume in $volumes) {
     $letter = [string]$volume.DeviceID
-    $partition = $partitions | Where-Object { "$($_.DriveLetter):" -eq $letter } | Select-Object -First 1
+    $partition = $script:partitionByLetter[$letter]
     $diskNumber = if ($partition) { [int]$partition.DiskNumber } else { -1 }
-    $disk = $storageDisks | Where-Object { [int]$_.Number -eq $diskNumber } | Select-Object -First 1
-    $physical = $physicalDisks | Where-Object { [string]$_.DeviceId -eq [string]$diskNumber } | Select-Object -First 1
-    $wmiDisk = $wmiDisks | Where-Object { [int]$_.Index -eq $diskNumber } | Select-Object -First 1
+    $disk = $script:diskByNumber[$diskNumber]
+    $physical = $script:physicalByDeviceId[[string]$diskNumber]
+    $wmiDisk = $script:wmiDiskByIndex[$diskNumber]
     $model = if ($physical -and $physical.FriendlyName) { [string]$physical.FriendlyName } elseif ($disk -and $disk.FriendlyName) { [string]$disk.FriendlyName } elseif ($wmiDisk -and $wmiDisk.Model) { [string]$wmiDisk.Model } else { 'Local volume' }
     $busType = if ($disk) { [string]$disk.BusType } elseif ($physical) { [string]$physical.BusType } else { '' }
     $mediaType = if ($physical) { [string]$physical.MediaType } elseif ($wmiDisk) { [string]$wmiDisk.MediaType } else { '' }
@@ -443,7 +538,7 @@ do {
     $usedGB = [Math]::Max(0, $totalGB - $freeGB)
     $counter = $diskCounters[$letter]
     $drives += [ordered]@{
-      id = $letter; name = "$model ($letter)"; type = $driveType; letter = $letter
+      id = $letter; deviceId = if ($diskNumber -ge 0) { [string]$diskNumber } else { $model }; name = "$model ($letter)"; type = $driveType; letter = $letter
       totalGB = Round-Value $totalGB 1; usedGB = Round-Value $usedGB 1; freeGB = Round-Value $freeGB 1
       loadPercent = if ($totalGB -gt 0) { Round-Value (100 * $usedGB / $totalGB) 1 } else { $null }
       readKBps = if ($counter) { Round-Value ([double]$counter.DiskReadBytesPersec / 1KB) 1 } else { $null }
@@ -513,7 +608,10 @@ do {
       totalGB = Round-Value $ramTotal 2; usedGB = Round-Value $ramUsed 2; freeGB = Round-Value $ramFree 2
       loadPercent = if ($null -ne $ramTotal -and $ramTotal -gt 0 -and $null -ne $ramUsed) { Round-Value (100 * $ramUsed / $ramTotal) 1 } else { $null }
     }
-    gpu = $gpu; drives = @($drives); fans = @($fanData | ForEach-Object { @{ name = $_.Name; value = Round-Value $_.Value 1; units = $_.Units } }); status = if ($processor -or $ramTotal -gt 0 -or $drives.Count -gt 0) { 'live' } else { 'unavailable' }
+    gpu = $gpu; drives = @($drives); fans = @($fanData | ForEach-Object { @{ name = $_.Name; value = Round-Value $_.Value 1; units = $_.Units } }); motherboard = $motherboard; peripherals = @($peripherals); peripheralCount = [int]$peripheralCount; status = if ($processor -or $ramTotal -gt 0 -or $drives.Count -gt 0) { 'live' } else { 'unavailable' }
+    systemPowerW = if ($systemPowerSensor) { Round-Value $systemPowerSensor.Value 1 } else { $null }
+    systemPowerSource = if ($systemPowerSensor) { [string]$systemPowerSensor.Name } else { $null }
+    systemPowerKind = if ($systemPowerSensor -and $systemPowerSensor.Name -match '^whole system power$') { 'whole-system' } elseif ($systemPowerSensor -and $systemPowerSensor.Name -match '^(?:ac input|wall) power$') { 'pc-input' } elseif ($systemPowerSensor) { 'pc-output' } else { $null }
     source = if ($mahmData.Count -gt 0) { 'Windows + MSI Afterburner' } else { 'Windows' }
     network = @{
       name = $script:networkInfo.name; adapter = $script:networkInfo.adapter; localIP = $script:networkInfo.localIP
@@ -527,6 +625,7 @@ do {
 
   if ($Once) { break }
   if (([DateTime]::Now - $lastStorageScan).TotalSeconds -ge 30) { Update-StorageInventory }
+  if (([DateTime]::Now - $script:lastPeripheralScan).TotalSeconds -ge 120) { Update-PeripheralInventory }
   $nowTicks = [Diagnostics.Stopwatch]::GetTimestamp()
   if ($firstCycle) {
     # Run the first reading immediately, then measure intervals from its start.

@@ -3,13 +3,16 @@ import React from 'react';
 interface Props {
   onOpenSettings: () => void;
   onRefresh: () => void;
+  onMinimize: () => void;
+  onToggleMaximize: () => void;
+  isMaximized: boolean;
   isRefreshing: boolean;
   updateAvailable: boolean;
   latestVersion: string | null;
   onOpenLatestRelease: () => void;
 }
 
-export const ControlToolbar: React.FC<Props> = ({ onOpenSettings, onRefresh, isRefreshing, updateAvailable, latestVersion, onOpenLatestRelease }) => (
+export const ControlToolbar: React.FC<Props> = ({ onOpenSettings, onRefresh, onMinimize, onToggleMaximize, isMaximized, isRefreshing, updateAvailable, latestVersion, onOpenLatestRelease }) => (
   <div className={`absolute right-3 top-3 z-40 flex gap-1 transition-opacity hover:opacity-100 focus-within:opacity-100 ${updateAvailable ? 'opacity-100' : 'opacity-35'}`}>
     {updateAvailable && <button
       type="button"
@@ -18,6 +21,30 @@ export const ControlToolbar: React.FC<Props> = ({ onOpenSettings, onRefresh, isR
       title={`Version ${latestVersion} is available on GitHub`}
       aria-label={`Version ${latestVersion} is available. Open the GitHub release page`}
     >Update · v{latestVersion}</button>}
+    <button
+      type="button"
+      onClick={onMinimize}
+      className="rounded border border-slate-700 bg-slate-950/90 p-2 text-slate-300 hover:bg-slate-800"
+      title="Minimize MonitorStats to the notification area"
+      aria-label="Minimize MonitorStats to the notification area"
+    >
+      <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="M5 18h14" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      </svg>
+    </button>
+    <button
+      type="button"
+      onClick={onToggleMaximize}
+      className="rounded border border-slate-700 bg-slate-950/90 p-2 text-slate-300 hover:bg-slate-800"
+      title={isMaximized ? 'Restore widget size' : 'Maximize widget to the monitor work area'}
+      aria-label={isMaximized ? 'Restore widget size' : 'Maximize widget to the monitor work area'}
+    >
+      <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        {isMaximized
+          ? <path d="M8 5h11v11M16 8H5v11h11V8Z" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+          : <path d="M5 5h14v14H5z" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" />}
+      </svg>
+    </button>
     <button
       type="button"
       onClick={onRefresh}

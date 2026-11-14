@@ -1,9 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import { DisplaySettings, GameTelemetry, HardwareStats } from '../types/stats';
+import { DisplaySettings, GameTelemetry, HardwareStats, MonitorInfo, WindowsBuildInfo } from '../types/stats';
+import { estimateSystemPower } from '../utils/systemPower';
 
 interface Props {
   stats: HardwareStats | null;
   settings: DisplaySettings;
+  displays: MonitorInfo[];
+  windowsBuildInfo: WindowsBuildInfo | null;
 }
 
 const number = (value: number | null | undefined, digits = 1) =>
@@ -46,7 +49,7 @@ const Reading: React.FC<{ label: React.ReactNode; value: string; detail?: string
   );
 };
 
-const SystemPanel = React.memo(({ stats }: { stats: HardwareStats | null }) => {
+const SystemPanel = React.memo(({ stats, windowsBuildInfo }: { stats: HardwareStats | null; windowsBuildInfo: WindowsBuildInfo | null }) => {
   const [clockNow, setClockNow] = useState(() => Date.now());
   useEffect(() => {
     let timer: number | undefined;
@@ -80,6 +83,10 @@ const SystemPanel = React.memo(({ stats }: { stats: HardwareStats | null }) => {
     <Panel title="System">
       <div className="flex items-end justify-between gap-3">
         <div className="text-2xl font-bold tabular-nums text-white">{timeText}</div>
+        {windowsBuildInfo && <div className="shrink-0 text-right text-[10px] leading-tight text-slate-400" title={`${windowsBuildInfo.name}${windowsBuildInfo.version ? ` · ${windowsBuildInfo.version}` : ''} · Build ${windowsBuildInfo.build}`}>
+          <div>{windowsBuildInfo.name}{windowsBuildInfo.version ? ` · ${windowsBuildInfo.version}` : ''}</div>
+          <div>Build {windowsBuildInfo.build}</div>
+        </div>}
       </div>
       <div className="mt-1 flex items-center justify-between gap-2 text-xs text-slate-400">
         <span>{date.toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'short', year: 'numeric' })}</span>
@@ -158,7 +165,20 @@ const ProcessPanel = React.memo(({ ram }: { ram: HardwareStats['ram'] | undefine
       && process.workingSetMB === nextTop[index]?.workingSetMB);
 });
 
-const StatsViewComponent: React.FC<Props> = ({ stats, settings }) => {
+const SystemPowerPanel = React.memo(({ estimate }: { estimate: ReturnType<typeof estimateSystemPower> }) => {
+  if (!estimate) return null;
+  return <Panel title="Total system power" className="shrink-0 !p-2">
+    <div className="flex items-baseline justify-between gap-2" title={estimate.explanation}>
+      <span className="text-lg font-bold tabular-nums text-white">{estimate.mode === 'measured' ? '' : '≈'}{number(estimate.watts, 0)} W</span>
+      <span className={`text-[9px] font-medium uppercase tracking-wide ${estimate.mode === 'measured' ? 'text-emerald-400' : 'text-amber-300'}`}>
+        {estimate.mode === 'measured' ? 'Measured' : estimate.mode === 'mixed' ? 'Mixed estimate' : 'Estimated at wall'}
+      </span>
+    </div>
+    <div className="text-[9px] tabular-nums text-slate-400">Expected range {number(estimate.low, 0)}–{number(estimate.high, 0)} W</div>
+  </Panel>;
+});
+
+const StatsViewComponent: React.FC<Props> = ({ stats, settings, displays, windowsBuildInfo }) => {
   const [showNetworkIPs, setShowNetworkIPs] = useState(true);
   const cpuFans = stats?.fans.filter((fan) => /CPU.*fan|fan.*CPU/i.test(fan.name)) ?? [];
   const ram = stats?.ram;
@@ -180,8 +200,8 @@ const StatsViewComponent: React.FC<Props> = ({ stats, settings }) => {
     .filter(Boolean).join(' · ');
   return (
     <div className="grid h-full min-h-0 grid-cols-2 gap-2 overflow-hidden text-sm">
-      <div className="flex min-h-0 flex-col gap-2 overflow-hidden">
-        <SystemPanel stats={stats} />
+      <div className="dashboard-column flex min-h-0 flex-col gap-2">
+        <SystemPanel stats={stats} windowsBuildInfo={windowsBuildInfo} />
 
         {settings.showFpsBox && <GameFrameRatePanel monitor={settings.fpsMonitor} />}
 
@@ -227,6 +247,7 @@ const StatsViewComponent: React.FC<Props> = ({ stats, settings }) => {
         </Panel>
 
         <ProcessPanel ram={stats?.ram} />
+        <SystemPowerPanel estimate={estimateSystemPower(stats, displays)} />
 
       </div>
 

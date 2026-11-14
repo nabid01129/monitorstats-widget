@@ -2,6 +2,40 @@
 
 Cumulative history starts with the first public release, v1.3.37, and includes the available notes for later builds. Pre-1.3.37 local builds have no preserved per-version notes.
 
+## 1.3.64 — 2026-11-14
+
+Changes since the latest GitHub release, v1.3.58:
+
+- Add minimize and maximize controls, plus the detected Windows version and build beside the clock.
+- Add a total system power estimate with live CPU/GPU readings where available and clearly labeled estimates for components Windows cannot meter directly. Move the detailed breakdown to Settings.
+- Detect motherboard and connected USB/HID device information to improve the optional power estimate.
+- Reduce repeated sensor filtering and drive-inventory searches during hardware polling while preserving sensor priority and displayed readings.
+- Publish Fan Control fallback readings with the shared hardware snapshot, avoiding an extra dashboard update between samples.
+- Keep the accurate one-second clock and responsive game/network monitoring independent from hardware polling.
+
+## 1.3.63 — 2026-11-14 (local build)
+
+- Keep the dashboard's total power card compact by removing its component list.
+- Move the detailed wattage breakdown to Settings, where it can be expanded when needed.
+
+## 1.3.62 — 2026-11-14 (local build)
+
+- Correct the power panel's compact scale and keep the dashboard readable on shorter displays.
+- Detect motherboard identity and connected USB/HID peripherals through Windows hardware inventory.
+- Expand the watt breakdown for CPU, GPU, memory modules, each physical drive, cooling, motherboard, USB peripherals, displays, and estimated PSU conversion loss.
+- Use component-class power estimates and label inferred values and ranges clearly.
+
+## 1.3.61 — 2026-11-14 (local build)
+
+- Add a low-overhead total system power estimate below Processes, including detected displays.
+- Prefer available CPU, GPU, or whole-system watt sensors and estimate only components without direct readings.
+- Show the estimate range and clearly distinguish live readings from modeled power.
+
+## 1.3.60 — 2026-11-14 (local build)
+
+- Add minimize-to-tray and maximize/restore controls beside refresh and settings.
+- Show the detected Windows edition, feature version, and full OS build beside the clock.
+
 ## 1.3.58 — 2026-11-11
 
 - Show the installed app version in Settings and add a GitHub releases shortcut for manual update checks.

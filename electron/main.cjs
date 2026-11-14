@@ -1,5 +1,5 @@
 const { app, BrowserWindow, ipcMain, screen, Tray, Menu, nativeImage, safeStorage, shell } = require('electron');
-const { spawn } = require('node:child_process');
+const { spawn, execFileSync } = require('node:child_process');
 const path = require('node:path');
 const os = require('node:os');
 const fsSync = require('node:fs');
@@ -38,6 +38,7 @@ let cachedOwnProcessIds;
 let ownProcessIdsCachedAt = 0;
 let latestHardwarePayload = null;
 let widgetLayout = { displayId: '', fillDisplay: true, displayPosition: 'center', widthPercent: 75, heightPercent: 75, autoScale: true, scalePercent: 100 };
+let windowMaximizeOverride = null;
 let tray;
 let rtssReading = null;
 let lastPublishedFpsSignature = '';
@@ -559,7 +560,9 @@ function updateFanControlSensors(payload) {
   if (signature === latestFanControlSignature) return;
   latestFanControlSignature = signature;
   latestFanControlSensors = sensors;
-  if (latestHardwarePayload) sendHardwareStats(latestHardwarePayload);
+  // Publish fallback fan data with the next hardware snapshot. This keeps the
+  // dashboard on one update cadence and avoids a second renderer update between
+  // sensor samples; the helper already polls at the selected hardware interval.
 }
 
 function fanNameKey(name) {
@@ -704,9 +707,11 @@ function listDisplays() {
     id: String(display.id),
     fpsIndex: index + 1,
     label: `Monitor ${index + 1}${display.id === screen.getPrimaryDisplay().id ? ' · Primary' : ''} · ${Math.round(display.bounds.width * display.scaleFactor)}×${Math.round(display.bounds.height * display.scaleFactor)} · ${display.bounds.width === display.bounds.height ? 'Square' : display.bounds.width > display.bounds.height ? 'Landscape' : 'Portrait'}`,
+    model: typeof display.label === 'string' && display.label.trim() ? display.label.trim() : null,
     primary: display.id === screen.getPrimaryDisplay().id,
     width: Math.round(display.bounds.width * display.scaleFactor),
     height: Math.round(display.bounds.height * display.scaleFactor),
+    refreshRate: Number.isFinite(display.displayFrequency) && display.displayFrequency > 0 ? display.displayFrequency : null,
     orientation: display.bounds.width === display.bounds.height ? 'Square' : display.bounds.width > display.bounds.height ? 'Landscape' : 'Portrait',
   }));
 }
@@ -718,26 +723,67 @@ function resolveWidgetDisplay() {
     || screen.getPrimaryDisplay();
 }
 
-function applyWidgetLayout() {
-  if (!mainWindow || mainWindow.isDestroyed()) return;
+function getWidgetBounds(forceMaximized = false, forceWindowed = false) {
   // Keep the widget inside the usable desktop area so the Windows taskbar
   // remains outside its bounds even when Fill the entire monitor is enabled.
   const area = resolveWidgetDisplay().workArea;
-  const width = widgetLayout.fillDisplay ? area.width : Math.min(area.width, Math.max(1, Math.round(area.width * widgetLayout.widthPercent / 100)));
-  const height = widgetLayout.fillDisplay ? area.height : Math.min(area.height, Math.max(1, Math.round(area.height * widgetLayout.heightPercent / 100)));
-  const margin = widgetLayout.fillDisplay || width >= area.width ? 0 : Math.max(8, Math.round(area.width * 0.02));
+  const fillDisplay = forceMaximized || (!forceWindowed && widgetLayout.fillDisplay);
+  const width = fillDisplay ? area.width : Math.min(area.width, Math.max(1, Math.round(area.width * widgetLayout.widthPercent / 100)));
+  const height = fillDisplay ? area.height : Math.min(area.height, Math.max(1, Math.round(area.height * widgetLayout.heightPercent / 100)));
+  const margin = fillDisplay || width >= area.width ? 0 : Math.max(8, Math.round(area.width * 0.02));
   const x = widgetLayout.displayPosition === 'left'
     ? area.x + margin
     : widgetLayout.displayPosition === 'right'
       ? area.x + area.width - width - margin
       : area.x + Math.round((area.width - width) / 2);
   const y = area.y + Math.round((area.height - height) / 2);
-  mainWindow.setBounds({ x: Math.max(area.x, x), y, width, height });
+  return { x: Math.max(area.x, x), y, width, height };
+}
+
+function isWidgetMaximized() {
+  return windowMaximizeOverride === null ? widgetLayout.fillDisplay : windowMaximizeOverride;
+}
+
+function applyWidgetLayout() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  const area = resolveWidgetDisplay().workArea;
+  mainWindow.setBounds(getWidgetBounds(isWidgetMaximized(), !isWidgetMaximized()));
   if (mainWindow.webContents && !mainWindow.webContents.isDestroyed()) {
     const autoScale = widgetLayout.autoScale ? Math.min(1.5, Math.max(0.7, Math.min(area.width / 768, area.height / 1366))) : 1;
     const userScale = Math.max(70, Math.min(130, widgetLayout.scalePercent)) / 100;
     mainWindow.webContents.setZoomFactor(Math.max(0.5, Math.min(2, autoScale * userScale)));
   }
+}
+
+function toggleWidgetMaximized() {
+  if (!mainWindow || mainWindow.isDestroyed()) return false;
+  windowMaximizeOverride = !isWidgetMaximized();
+  applyWidgetLayout();
+  return isWidgetMaximized();
+}
+
+function getWindowsBuildInfo() {
+  if (process.platform !== 'win32') return null;
+  const releaseMatch = os.release().match(/^\d+\.\d+\.(\d+)/);
+  let registry = '';
+  try {
+    registry = execFileSync('reg.exe', ['query', 'HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion'], {
+      encoding: 'utf8', windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'],
+    });
+  } catch { /* Use the OS version reported by Node if the registry is unavailable. */ }
+  const registryValue = (name) => registry.match(new RegExp(`^\\s*${name}\\s+REG_SZ\\s+([^\\r\\n]+)`, 'im'))?.[1]?.trim() || null;
+  const build = registryValue('CurrentBuildNumber') || registryValue('CurrentBuild') || releaseMatch?.[1] || null;
+  const ubrValue = registry.match(/^\s*UBR\s+REG_DWORD\s+(0x[\da-f]+|\d+)\s*$/im)?.[1];
+  const ubr = ubrValue ? Number.parseInt(ubrValue, ubrValue.toLowerCase().startsWith('0x') ? 16 : 10) : null;
+  const productName = registryValue('ProductName') || '';
+  const edition = productName.match(/\b(Pro|Home|Enterprise|Education)\b/i)?.[1] || '';
+  const windowsName = build && Number(build) >= 22000 ? 'Windows 11' : 'Windows 10';
+  const version = registryValue('DisplayVersion');
+  return {
+    name: `${windowsName}${edition ? ` ${edition}` : ''}`,
+    version,
+    build: `${build || 'Unknown'}${Number.isFinite(ubr) ? `.${ubr}` : ''}`,
+  };
 }
 
 function handleDisplayChange() {
@@ -1180,6 +1226,8 @@ ipcMain.on('monitorstats:refresh-hardware', () => {
 
 ipcMain.handle('monitorstats:get-displays', () => listDisplays());
 ipcMain.handle('monitorstats:get-app-version', () => app.getVersion());
+ipcMain.handle('monitorstats:get-windows-build-info', () => getWindowsBuildInfo());
+ipcMain.handle('monitorstats:toggle-window-maximized', () => toggleWidgetMaximized());
 ipcMain.handle('monitorstats:check-for-updates', () => checkLatestRelease());
 ipcMain.handle('monitorstats:open-latest-release', () => shell.openExternal(GITHUB_RELEASES_LATEST_PAGE));
 ipcMain.handle('monitorstats:get-ont-config', async () => {
@@ -1191,6 +1239,10 @@ ipcMain.handle('monitorstats:get-ont-config', async () => {
   };
 });
 ipcMain.handle('monitorstats:save-ont-config', (_event, config) => saveOntConfig(config));
+
+ipcMain.on('monitorstats:minimize-window', () => {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.hide();
+});
 
 ipcMain.on('monitorstats:set-widget-layout', (_event, layout) => {
   if (!layout || typeof layout !== 'object') return;
@@ -1205,6 +1257,7 @@ ipcMain.on('monitorstats:set-widget-layout', (_event, layout) => {
     autoScale: layout.autoScale !== false,
     scalePercent: Math.max(70, Math.min(130, Number(layout.scalePercent) || 100)),
   };
+  windowMaximizeOverride = null;
   applyWidgetLayout();
 });
 

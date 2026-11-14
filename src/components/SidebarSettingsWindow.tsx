@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { DisplaySettings, HardwareStats, MonitorInfo, UpdateCheckInfo } from '../types/stats';
 import { THEME_OPTIONS } from '../utils/defaultSpecs';
+import { estimateSystemPower } from '../utils/systemPower';
 
 interface Props {
   isOpen: boolean;
@@ -39,6 +40,8 @@ export const SidebarSettingsWindow: React.FC<Props> = ({ isOpen, onClose, settin
 
   const toggleClass = 'h-4 w-4 accent-cyan-400';
   const rowClass = 'flex items-center justify-between gap-4 rounded border border-slate-700 bg-slate-950 px-3 py-3';
+  const powerEstimate = estimateSystemPower(stats, displays);
+  const formatWatts = (value: number) => `${value.toLocaleString(undefined, { maximumFractionDigits: 1 })} W`;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
@@ -115,6 +118,31 @@ export const SidebarSettingsWindow: React.FC<Props> = ({ isOpen, onClose, settin
             <label className="mt-3 block text-xs text-slate-400">{draft.autoScale ? 'Scale adjustment' : 'Manual UI scale'} · {draft.scalePercent}%
               <input type="range" min="70" max="130" step="5" value={draft.scalePercent} onChange={(event) => setDraft({ ...draft, scalePercent: Number(event.target.value) })} className="mt-1 block w-full accent-cyan-400" />
             </label>
+          </div>
+          <div className="rounded border border-slate-700 bg-slate-950 p-3">
+            <div className="flex items-center justify-between gap-2">
+              <strong>System power estimate</strong>
+              {powerEstimate && <span className="text-xs font-semibold tabular-nums text-cyan-300">{powerEstimate.mode === 'measured' ? '' : '≈'}{formatWatts(powerEstimate.watts)}</span>}
+            </div>
+            {powerEstimate ? <>
+              <p className="mt-1 text-xs text-slate-400">Expected range {formatWatts(powerEstimate.low)}–{formatWatts(powerEstimate.high)}. Detailed values update with the hardware poll.</p>
+              <details className="mt-2 text-xs">
+                <summary className="cursor-pointer select-none text-cyan-300">View component wattage · {powerEstimate.components.length} parts</summary>
+                <div className="mt-2 max-h-[45vh] space-y-1 overflow-y-auto pr-1">
+                  {powerEstimate.components.map((part) => <div key={part.name} className="grid grid-cols-[minmax(0,1fr)_auto] gap-2 border-t border-slate-800 pt-1">
+                    <div className="min-w-0">
+                      <div className="truncate text-slate-200" title={part.name}>{part.name}</div>
+                      <div className="text-[10px] leading-tight text-slate-500">{part.detail}</div>
+                    </div>
+                    <div className="whitespace-nowrap text-right tabular-nums">
+                      <div className={part.source === 'Live sensor' ? 'text-emerald-300' : 'text-slate-300'}>{part.source === 'Estimate' ? '≈' : ''}{formatWatts(part.watts)}</div>
+                      <div className="text-[10px] text-slate-500">{formatWatts(part.low)}–{formatWatts(part.high)}</div>
+                    </div>
+                  </div>)}
+                </div>
+                <p className="mt-2 text-[10px] leading-tight text-slate-500">{powerEstimate.explanation} USB device draw, monitor brightness, and PSU efficiency are modeled. A wall power meter is needed for an exact total.</p>
+              </details>
+            </> : <p className="mt-1 text-xs text-slate-400">Waiting for live hardware data.</p>}
           </div>
           <label className={rowClass}>
             <span><strong className="block">Start with Windows</strong><small className="text-slate-400">Launch when you sign in.</small></span>

@@ -17,6 +17,14 @@ body {
 
 * { box-sizing: border-box; }
 
+.dashboard-column {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.dashboard-column::-webkit-scrollbar { display: none; }
+
 /* These are plain color/style tokens: no animation, filters, blur, or polling. */
 [data-theme="classic"] { --theme-bg:#080a0e; --theme-panel:rgba(2,6,23,.85); --theme-surface:#020617; --theme-raised:#0f172a; --theme-border:#1e293b; --theme-accent:#22d3ee; --theme-text:#f1f5f9; --theme-muted:#94a3b8; --theme-radius:6px; --theme-line:solid; --theme-font:"Segoe UI",Arial,sans-serif; --theme-heading-space:.06em; }
 [data-theme="valorant"] { --theme-bg:#10090b; --theme-panel:#170e10; --theme-surface:#170e10; --theme-raised:#291719; --theme-border:#623039; --theme-accent:#ff5263; --theme-text:#fff4f3; --theme-muted:#c3a0a2; --theme-radius:2px; --theme-line:solid; --theme-font:"Bahnschrift","Segoe UI",sans-serif; --theme-heading-space:.12em; }

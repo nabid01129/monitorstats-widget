@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { DisplaySettings, GameTelemetry, HardwareStats, MonitorInfo, UpdateCheckInfo } from './types/stats';
+import { DisplaySettings, GameTelemetry, HardwareStats, MonitorInfo, UpdateCheckInfo, WindowsBuildInfo } from './types/stats';
 import { DEFAULT_DISPLAY_SETTINGS, THEME_OPTIONS } from './utils/defaultSpecs';
 import { StatsView } from './components/StatsView';
 import { ControlToolbar } from './components/ControlToolbar';
@@ -25,6 +25,9 @@ interface ShellBridge {
   setWidgetLayout: (layout: Pick<DisplaySettings, 'displayId' | 'fillDisplay' | 'displayPosition' | 'widthPercent' | 'heightPercent' | 'autoScale' | 'scalePercent'>) => void;
   getDisplays: () => Promise<MonitorInfo[]>;
   getAppVersion: () => Promise<string>;
+  getWindowsBuildInfo: () => Promise<WindowsBuildInfo | null>;
+  minimizeWindow: () => void;
+  toggleWindowMaximized: () => Promise<boolean>;
   checkForUpdates: () => Promise<UpdateCheckInfo>;
   openLatestRelease: () => Promise<void>;
   getOntConfig: () => Promise<{ endpoint: string; username: string; configured: boolean }>;
@@ -79,12 +82,15 @@ export default function App() {
   const [oledShiftIndex, setOledShiftIndex] = useState(0);
   const [appVersion, setAppVersion] = useState('');
   const [updateInfo, setUpdateInfo] = useState<UpdateCheckInfo | null>(null);
+  const [windowsBuildInfo, setWindowsBuildInfo] = useState<WindowsBuildInfo | null>(null);
+  const [isWindowMaximized, setIsWindowMaximized] = useState(settings.fillDisplay);
 
   useEffect(() => {
     const shell = window.monitorStatsShell;
     if (!shell) return;
     let active = true;
     shell.getAppVersion().then((version) => { if (active) setAppVersion(version); }).catch(() => {});
+    shell.getWindowsBuildInfo().then((info) => { if (active) setWindowsBuildInfo(info); }).catch(() => {});
     shell.checkForUpdates().then((info) => { if (active) setUpdateInfo(info); }).catch(() => {
       if (active) setUpdateInfo({ currentVersion: '', latestVersion: null, status: 'unavailable' });
     });
@@ -111,6 +117,7 @@ export default function App() {
   }, [settings.pollingIntervalMs]);
 
   useEffect(() => {
+    setIsWindowMaximized(settings.fillDisplay);
     window.monitorStatsShell?.setWidgetLayout({
       displayId: settings.displayId, fillDisplay: settings.fillDisplay, displayPosition: settings.displayPosition,
       widthPercent: settings.widthPercent, heightPercent: settings.heightPercent,
@@ -168,6 +175,12 @@ export default function App() {
   const openLatestRelease = useCallback(() => {
     window.monitorStatsShell?.openLatestRelease().catch(() => {});
   }, []);
+  const toggleWindowMaximized = useCallback(async () => {
+    try {
+      const maximized = await window.monitorStatsShell?.toggleWindowMaximized();
+      if (typeof maximized === 'boolean') setIsWindowMaximized(maximized);
+    } catch { /* Window controls are only available in the desktop shell. */ }
+  }, []);
 
   return (
     <div className="theme-shell relative h-screen overflow-hidden text-white font-sans" data-theme={settings.theme}>
@@ -175,6 +188,9 @@ export default function App() {
         <ControlToolbar
           onOpenSettings={() => setIsSettingsOpen(true)}
           onRefresh={() => window.monitorStatsShell?.refreshHardware()}
+          onMinimize={() => window.monitorStatsShell?.minimizeWindow()}
+          onToggleMaximize={toggleWindowMaximized}
+          isMaximized={isWindowMaximized}
           isRefreshing={isRefreshing}
           updateAvailable={updateInfo?.status === 'available'}
           latestVersion={updateInfo?.latestVersion || null}
@@ -184,6 +200,8 @@ export default function App() {
           <StatsView
             stats={stats}
             settings={settings}
+            displays={displays}
+            windowsBuildInfo={windowsBuildInfo}
           />
         </main>
       </div>
